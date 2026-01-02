@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QCheckBox,
     QPushButton,
+    QListWidget,
+    QGroupBox,
     QSizePolicy,
     QStatusBar,
     QVBoxLayout,
@@ -20,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from textgrid_transcriber.ffmpeg import get_ffmpeg_path
+from textgrid_transcriber.project import PROJECT_FILENAME, PROJECT_VERSION, Project, Segment, load_project, save_project
 from textgrid_transcriber.splitter import split_audio_with_ffmpeg
 
 
@@ -31,6 +34,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("TextGrid Transcriber")
+        self.current_project_path: Path | None = None
+        self.current_output_dir: Path | None = None
+        self.current_segments: list[Segment] = []
 
         # --- Header
         title = QLabel("TextGrid Transcriber")
@@ -84,6 +90,13 @@ class MainWindow(QMainWindow):
             "Run speech recognition on all segments after splitting. Takes longer for large files."
         )
 
+        self.segments_list = QListWidget()
+        self.segments_list.setMinimumHeight(160)
+        segments_group = QGroupBox("Segments")
+        segments_layout = QVBoxLayout()
+        segments_layout.addWidget(self.segments_list)
+        segments_group.setLayout(segments_layout)
+
         # --- Primary action
         self.split_btn = QPushButton("Split")
         self.split_btn.setEnabled(False)
@@ -106,8 +119,9 @@ class MainWindow(QMainWindow):
         root.addSpacing(6)
         root.addLayout(form)
         root.addWidget(self.batch_asr_checkbox)
-        root.addStretch(1)
         root.addLayout(actions)
+        root.addWidget(segments_group)
+        root.addStretch(1)
 
         central = QWidget()
         central.setLayout(root)
@@ -115,6 +129,12 @@ class MainWindow(QMainWindow):
 
         # Status bar (useful later for progress / ffmpeg messages)
         self.setStatusBar(QStatusBar())
+
+        file_menu = self.menuBar().addMenu("File")
+        self.open_project_action = file_menu.addAction("Open Project…")
+        self.save_project_action = file_menu.addAction("Save Project")
+        self.save_project_as_action = file_menu.addAction("Save Project As…")
+        self.save_project_action.setEnabled(False)
 
         self.check_ffmpeg()
 
@@ -124,6 +144,10 @@ class MainWindow(QMainWindow):
         self.audio_path.textChanged.connect(self.update_state)
         self.textgrid_path.textChanged.connect(self.update_state)
         self.split_btn.clicked.connect(self.split_audio)
+        self.batch_asr_checkbox.stateChanged.connect(self.maybe_autosave)
+        self.open_project_action.triggered.connect(self.open_project)
+        self.save_project_action.triggered.connect(self.save_project_file)
+        self.save_project_as_action.triggered.connect(self.save_project_as)
 
         self.resize(620, 240)
 
@@ -211,15 +235,105 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Split failed: {message}")
         self.update_state()
 
-    @Slot(str)
-    def on_split_finished(self, output_dir):
+    @Slot(object)
+    def on_split_finished(self, result):
+        output_dir = Path(result["output_dir"])
+        self.current_output_dir = output_dir
+        self.current_segments = result["segments"]
+
+        self.current_project_path = output_dir / PROJECT_FILENAME
+        self.save_project_file()
         self.statusBar().showMessage(f"Split complete. Files saved to {output_dir}")
+        self.populate_segments()
         self.update_state()
+
+    def _build_project(self) -> Project:
+        audio_path = Path(self.audio_path.text().strip())
+        textgrid_path = Path(self.textgrid_path.text().strip())
+        output_dir = self.current_output_dir
+        if output_dir is None and audio_path:
+            output_dir = audio_path.parent / "splits"
+
+        return Project(
+            version=PROJECT_VERSION,
+            audio_path=str(audio_path),
+            textgrid_path=str(textgrid_path),
+            output_dir=str(output_dir) if output_dir else "",
+            batch_asr=self.batch_asr_checkbox.isChecked(),
+            segments=self.current_segments,
+        )
+
+    def maybe_autosave(self):
+        if self.current_project_path is None:
+            return
+        self.save_project_file(show_status=False)
+
+    def save_project_file(self, show_status=True, force_dialog=False):
+        if self.current_project_path is None or force_dialog:
+            default_path = PROJECT_FILENAME
+            if self.current_project_path is not None:
+                default_path = str(self.current_project_path)
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save project",
+                default_path,
+                "TextGrid Project (*.json);;All Files (*)",
+            )
+            if not file_path:
+                return
+            self.current_project_path = Path(file_path)
+
+        project = self._build_project()
+        save_project(self.current_project_path, project)
+        self.save_project_action.setEnabled(True)
+        if show_status:
+            self.statusBar().showMessage(f"Project saved to {self.current_project_path}", 3000)
+
+    def save_project_as(self):
+        self.save_project_file(force_dialog=True)
+
+    def open_project(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open project",
+            "",
+            "TextGrid Project (*.json);;All Files (*)",
+        )
+        if not file_path:
+            return
+
+        try:
+            project = load_project(Path(file_path))
+        except Exception as exc:
+            self.statusBar().showMessage(f"Failed to load project: {exc}")
+            return
+
+        self.current_project_path = Path(file_path)
+        self.current_output_dir = Path(project.output_dir)
+        self.current_segments = project.segments
+
+        self.audio_path.setText(project.audio_path)
+        self.textgrid_path.setText(project.textgrid_path)
+        self.batch_asr_checkbox.setChecked(project.batch_asr)
+
+        self.save_project_action.setEnabled(True)
+        self.statusBar().showMessage(f"Project loaded from {self.current_project_path}", 3000)
+        self.populate_segments()
+        self.update_state()
+
+    def populate_segments(self):
+        self.segments_list.clear()
+        if not self.current_segments:
+            return
+        for segment in self.current_segments:
+            name = Path(segment.path).name
+            label = f"{segment.tier} {segment.index}: {name}"
+            self.segments_list.addItem(label)
 
 
 class SplitWorker(QObject):
     progress = Signal(int, int, str)
-    finished = Signal(str)
+    finished = Signal(object)
     failed = Signal(str)
 
     def __init__(self, ffmpeg_path: Path, audio_path: Path, textgrid_path: Path, output_dir: Path):
@@ -232,7 +346,7 @@ class SplitWorker(QObject):
     @Slot()
     def run(self):
         try:
-            split_audio_with_ffmpeg(
+            output_dir, segments = split_audio_with_ffmpeg(
                 self.ffmpeg_path,
                 self.audio_path,
                 self.textgrid_path,
@@ -243,7 +357,7 @@ class SplitWorker(QObject):
             self.failed.emit(str(exc))
             return
 
-        self.finished.emit(str(self.output_dir))
+        self.finished.emit({"output_dir": str(output_dir), "segments": segments})
 
     def _on_progress(self, done, total, output_path):
         self.progress.emit(done, total, output_path.name)

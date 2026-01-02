@@ -7,6 +7,8 @@ from pathlib import Path
 
 from textgrid import TextGrid
 
+from textgrid_transcriber.project import Segment
+
 
 def _sanitize_label(label: str) -> str:
     cleaned = re.sub(r"[^\w\-\.]+", "_", label.strip())
@@ -23,7 +25,7 @@ def split_audio_with_ffmpeg(
     textgrid_path: Path,
     output_dir: Path,
     progress_cb=None,
-) -> Path:
+) -> tuple[Path, list[Segment]]:
     output_dir.mkdir(parents=True, exist_ok=True)
     wav_path = output_dir / f"{audio_path.stem}.wav"
 
@@ -55,6 +57,7 @@ def split_audio_with_ffmpeg(
 
     total = sum(len(intervals) for _, intervals in labeled_intervals_by_tier)
     completed = 0
+    segments: list[Segment] = []
 
     for tier, labeled_intervals in labeled_intervals_by_tier:
         tier_dir = output_dir / _sanitize_label(tier.name)
@@ -66,6 +69,7 @@ def split_audio_with_ffmpeg(
             end_ms = int(ceil(interval.maxTime * 1000))
             output_name = f"{tier.name}_{index:0{padding}d}_{start_ms}_{end_ms}.wav"
             output_path = tier_dir / output_name
+            mark = (getattr(interval, "mark", "") or "").strip()
 
             _run_ffmpeg(
                 [
@@ -84,8 +88,18 @@ def split_audio_with_ffmpeg(
                     str(output_path),
                 ]
             )
+            segments.append(
+                Segment(
+                    tier=str(tier.name),
+                    index=index,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    path=str(output_path),
+                    mark=mark,
+                )
+            )
             completed += 1
             if progress_cb:
                 progress_cb(completed, total, output_path)
 
-    return output_dir
+    return output_dir, segments
