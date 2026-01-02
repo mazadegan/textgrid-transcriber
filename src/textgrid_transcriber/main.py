@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QCheckBox,
     QPushButton,
     QStatusBar,
     QVBoxLayout,
@@ -68,6 +69,8 @@ class MainWindow(QMainWindow):
         form.addRow("Audio", audio_row)
         form.addRow("TextGrid", textgrid_row)
 
+        self.batch_asr_checkbox = QCheckBox("Enable batch ASR transcription")
+
         # --- Primary action
         self.split_btn = QPushButton("Split")
         self.split_btn.setEnabled(False)
@@ -89,6 +92,7 @@ class MainWindow(QMainWindow):
         root.addWidget(subtitle)
         root.addSpacing(6)
         root.addLayout(form)
+        root.addWidget(self.batch_asr_checkbox)
         root.addStretch(1)
         root.addLayout(actions)
 
