@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QCheckBox,
     QPushButton,
+    QSizePolicy,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -48,22 +49,28 @@ class MainWindow(QMainWindow):
 
         audio_browse = QPushButton("Browse…")
         textgrid_browse = QPushButton("Browse…")
+        audio_browse.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        textgrid_browse.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
         # Make browse buttons feel consistent
         audio_browse.setFixedWidth(96)
         textgrid_browse.setFixedWidth(96)
 
+        self.audio_path.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.textgrid_path.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
         audio_row = QHBoxLayout()
-        audio_row.addWidget(self.audio_path)
-        audio_row.addWidget(audio_browse)
+        audio_row.addWidget(self.audio_path, 1)
+        audio_row.addWidget(audio_browse, 0)
 
         textgrid_row = QHBoxLayout()
-        textgrid_row.addWidget(self.textgrid_path)
-        textgrid_row.addWidget(textgrid_browse)
+        textgrid_row.addWidget(self.textgrid_path, 1)
+        textgrid_row.addWidget(textgrid_browse, 0)
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignLeft)
         form.setFormAlignment(Qt.AlignTop)
+        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         form.setHorizontalSpacing(12)
         form.setVerticalSpacing(10)
         form.addRow("Audio", audio_row)
