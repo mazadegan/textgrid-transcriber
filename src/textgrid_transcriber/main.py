@@ -70,6 +70,9 @@ class MainWindow(QMainWindow):
         form.addRow("TextGrid", textgrid_row)
 
         self.batch_asr_checkbox = QCheckBox("Enable batch ASR transcription")
+        self.batch_asr_checkbox.setStatusTip(
+            "Run speech recognition on all segments after splitting. Takes longer for large files."
+        )
 
         # --- Primary action
         self.split_btn = QPushButton("Split")
