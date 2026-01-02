@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHeaderView,
     QTableView,
+    QMessageBox,
     QSizePolicy,
     QStatusBar,
     QVBoxLayout,
@@ -201,7 +202,7 @@ class MainWindow(QMainWindow):
         self.filter_status.currentTextChanged.connect(self.on_filter_status_changed)
         self.filter_sort.currentTextChanged.connect(self.on_sort_changed)
 
-        self.resize(620, 240)
+        self.resize(620, 620)
         self.segment_proxy.sort(0, Qt.AscendingOrder)
 
     def check_ffmpeg(self):
@@ -259,6 +260,19 @@ class MainWindow(QMainWindow):
 
         output_dir = audio_path.parent / "splits"
         ffmpeg_path = get_ffmpeg_path()
+
+        project_path = output_dir / PROJECT_FILENAME
+        if project_path.exists():
+            choice = QMessageBox.warning(
+                self,
+                "Project already exists",
+                "A project file already exists for this audio. Resplitting can overwrite "
+                "saved transcripts and status. Do you want to continue?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if choice != QMessageBox.Yes:
+                return
 
         self.split_btn.setEnabled(False)
         self.statusBar().showMessage("Splitting audio...")
