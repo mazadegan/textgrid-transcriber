@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from textgrid_transcriber.ffmpeg import get_ffmpeg_path
+from textgrid_transcriber.splitter import split_audio_with_ffmpeg
 
 
 AUDIO_FILTER = "Audio Files (*.mp3 *.wav *.flac *.mpg *.mpeg *.mp4 *.m4a *.aac *.ogg);;All Files (*)"
@@ -122,6 +123,7 @@ class MainWindow(QMainWindow):
         textgrid_browse.clicked.connect(self.pick_textgrid_file)
         self.audio_path.textChanged.connect(self.update_state)
         self.textgrid_path.textChanged.connect(self.update_state)
+        self.split_btn.clicked.connect(self.split_audio)
 
         self.resize(620, 240)
 
@@ -165,6 +167,86 @@ class MainWindow(QMainWindow):
                 self.hint.setText("ffmpeg is required to split audio.")
             else:
                 self.hint.setText("Choose both files to continue.")
+
+    def split_audio(self):
+        if not getattr(self, "ffmpeg_ok", False):
+            self.statusBar().showMessage("ffmpeg is required to split audio.")
+            return
+
+        audio_path = Path(self.audio_path.text().strip())
+        textgrid_path = Path(self.textgrid_path.text().strip())
+
+        if not audio_path.is_file() or not textgrid_path.is_file():
+            self.statusBar().showMessage("Select valid audio and TextGrid files.")
+            return
+
+        output_dir = audio_path.parent / "splits"
+        ffmpeg_path = get_ffmpeg_path()
+
+        self.split_btn.setEnabled(False)
+        self.statusBar().showMessage("Splitting audio...")
+
+        self.worker = SplitWorker(ffmpeg_path, audio_path, textgrid_path, output_dir)
+        self.worker_thread = QThread(self)
+        self.worker.moveToThread(self.worker_thread)
+
+        self.worker.progress.connect(self.on_split_progress)
+        self.worker.finished.connect(self.on_split_finished)
+        self.worker.failed.connect(self.on_split_failed)
+        self.worker_thread.started.connect(self.worker.run)
+
+        self.worker.finished.connect(self.worker_thread.quit)
+        self.worker.failed.connect(self.worker_thread.quit)
+        self.worker_thread.finished.connect(self.worker.deleteLater)
+        self.worker_thread.finished.connect(self.worker_thread.deleteLater)
+
+        self.worker_thread.start()
+
+    @Slot(int, int, str)
+    def on_split_progress(self, done, total, output_name):
+        self.statusBar().showMessage(f"Split {done}/{total}: {output_name}")
+
+    @Slot(str)
+    def on_split_failed(self, message):
+        self.statusBar().showMessage(f"Split failed: {message}")
+        self.update_state()
+
+    @Slot(str)
+    def on_split_finished(self, output_dir):
+        self.statusBar().showMessage(f"Split complete. Files saved to {output_dir}")
+        self.update_state()
+
+
+class SplitWorker(QObject):
+    progress = Signal(int, int, str)
+    finished = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, ffmpeg_path: Path, audio_path: Path, textgrid_path: Path, output_dir: Path):
+        super().__init__()
+        self.ffmpeg_path = ffmpeg_path
+        self.audio_path = audio_path
+        self.textgrid_path = textgrid_path
+        self.output_dir = output_dir
+
+    @Slot()
+    def run(self):
+        try:
+            split_audio_with_ffmpeg(
+                self.ffmpeg_path,
+                self.audio_path,
+                self.textgrid_path,
+                self.output_dir,
+                progress_cb=self._on_progress,
+            )
+        except Exception as exc:
+            self.failed.emit(str(exc))
+            return
+
+        self.finished.emit(str(self.output_dir))
+
+    def _on_progress(self, done, total, output_path):
+        self.progress.emit(done, total, output_path.name)
 
 
 def main():
