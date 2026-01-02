@@ -16,6 +16,9 @@ class Segment:
     end_ms: int
     path: str
     mark: str
+    transcript: str
+    asr_generated: bool
+    verified: bool
 
 
 @dataclass
@@ -58,6 +61,9 @@ def save_project(project_path: Path, project: Project) -> None:
                 "end_ms": segment.end_ms,
                 "path": _rel_path(Path(segment.path), base),
                 "mark": segment.mark,
+                "transcript": segment.transcript,
+                "asr_generated": segment.asr_generated,
+                "verified": segment.verified,
             }
             for segment in project.segments
         ],
@@ -77,6 +83,9 @@ def load_project(project_path: Path) -> Project:
             end_ms=segment["end_ms"],
             path=str(_abs_path(segment["path"], base)),
             mark=segment.get("mark", ""),
+            transcript=segment.get("transcript", ""),
+            asr_generated=segment.get("asr_generated", False),
+            verified=segment.get("verified", False),
         )
         for segment in data.get("segments", [])
     ]

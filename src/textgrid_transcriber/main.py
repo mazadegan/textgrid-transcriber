@@ -13,8 +13,10 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QCheckBox,
     QPushButton,
-    QListWidget,
+    QComboBox,
     QGroupBox,
+    QHeaderView,
+    QTableView,
     QSizePolicy,
     QStatusBar,
     QVBoxLayout,
@@ -22,6 +24,14 @@ from PySide6.QtWidgets import (
 )
 
 from textgrid_transcriber.ffmpeg import get_ffmpeg_path
+from textgrid_transcriber.segments_model import (
+    STATUS_EMPTY,
+    STATUS_UNVERIFIED,
+    STATUS_VERIFIED,
+    SegmentFilterProxy,
+    SegmentTableModel,
+    segment_status,
+)
 from textgrid_transcriber.project import PROJECT_FILENAME, PROJECT_VERSION, Project, Segment, load_project, save_project
 from textgrid_transcriber.splitter import split_audio_with_ffmpeg
 
@@ -90,11 +100,49 @@ class MainWindow(QMainWindow):
             "Run speech recognition on all segments after splitting. Takes longer for large files."
         )
 
-        self.segments_list = QListWidget()
-        self.segments_list.setMinimumHeight(160)
+        self.segments_header = QLabel("Segments (0 total, 0 verified)")
+        self.segment_model = SegmentTableModel()
+        self.segment_proxy = SegmentFilterProxy()
+        self.segment_proxy.setSourceModel(self.segment_model)
+        self.segment_proxy.setSortCaseSensitivity(Qt.CaseInsensitive)
+
+        self.filter_text = QLineEdit()
+        self.filter_text.setPlaceholderText("Filter by name or transcript")
+        self.filter_tier = QComboBox()
+        self.filter_status = QComboBox()
+        self.filter_sort = QComboBox()
+        self.filter_tier.addItem("All")
+        self.filter_status.addItems(["All", STATUS_EMPTY, STATUS_UNVERIFIED, STATUS_VERIFIED])
+        self.filter_sort.addItems(["Status", "Duration", "Name"])
+
+        filters_row = QHBoxLayout()
+        filters_row.addWidget(QLabel("Filter"))
+        filters_row.addWidget(self.filter_text, 1)
+        filters_row.addWidget(QLabel("Tier"))
+        filters_row.addWidget(self.filter_tier)
+        filters_row.addWidget(QLabel("Status"))
+        filters_row.addWidget(self.filter_status)
+        filters_row.addWidget(QLabel("Sort"))
+        filters_row.addWidget(self.filter_sort)
+
+        self.segments_table = QTableView()
+        self.segments_table.setModel(self.segment_proxy)
+        self.segments_table.setSelectionBehavior(QTableView.SelectRows)
+        self.segments_table.setSelectionMode(QTableView.SingleSelection)
+        self.segments_table.setSortingEnabled(True)
+        self.segments_table.horizontalHeader().setStretchLastSection(True)
+        self.segments_table.horizontalHeader().setSectionResizeMode(
+            SegmentTableModel.COLUMN_FILE, QHeaderView.Stretch
+        )
+        self.segments_table.horizontalHeader().setSectionResizeMode(
+            SegmentTableModel.COLUMN_STATUS, QHeaderView.ResizeToContents
+        )
+
         segments_group = QGroupBox("Segments")
         segments_layout = QVBoxLayout()
-        segments_layout.addWidget(self.segments_list)
+        segments_layout.addWidget(self.segments_header)
+        segments_layout.addLayout(filters_row)
+        segments_layout.addWidget(self.segments_table)
         segments_group.setLayout(segments_layout)
 
         # --- Primary action
@@ -148,8 +196,13 @@ class MainWindow(QMainWindow):
         self.open_project_action.triggered.connect(self.open_project)
         self.save_project_action.triggered.connect(self.save_project_file)
         self.save_project_as_action.triggered.connect(self.save_project_as)
+        self.filter_text.textChanged.connect(self.on_filter_text_changed)
+        self.filter_tier.currentTextChanged.connect(self.on_filter_tier_changed)
+        self.filter_status.currentTextChanged.connect(self.on_filter_status_changed)
+        self.filter_sort.currentTextChanged.connect(self.on_sort_changed)
 
         self.resize(620, 240)
+        self.segment_proxy.sort(0, Qt.AscendingOrder)
 
     def check_ffmpeg(self):
         self.ffmpeg_ok = False
@@ -322,13 +375,51 @@ class MainWindow(QMainWindow):
         self.update_state()
 
     def populate_segments(self):
-        self.segments_list.clear()
-        if not self.current_segments:
-            return
-        for segment in self.current_segments:
-            name = Path(segment.path).name
-            label = f"{segment.tier} {segment.index}: {name}"
-            self.segments_list.addItem(label)
+        self.segment_model.set_segments(self.current_segments)
+        self.refresh_filters()
+        self.update_segments_header()
+
+    def refresh_filters(self):
+        tiers = sorted({segment.tier for segment in self.current_segments})
+        current_tier = self.filter_tier.currentText()
+        self.filter_tier.blockSignals(True)
+        self.filter_tier.clear()
+        self.filter_tier.addItem("All")
+        for tier in tiers:
+            self.filter_tier.addItem(tier)
+        if current_tier and current_tier in tiers:
+            self.filter_tier.setCurrentText(current_tier)
+        else:
+            self.filter_tier.setCurrentText("All")
+        self.filter_tier.blockSignals(False)
+
+        self.segment_proxy.invalidateFilter()
+
+    def update_segments_header(self):
+        total = len(self.current_segments)
+        verified = sum(1 for segment in self.current_segments if segment_status(segment) == STATUS_VERIFIED)
+        self.segments_header.setText(f"Segments ({total} total, {verified} verified)")
+
+    def on_filter_text_changed(self, text):
+        self.segment_proxy.set_filter_text(text)
+        self.update_segments_header()
+
+    def on_filter_tier_changed(self, text):
+        self.segment_proxy.set_filter_tier(text)
+        self.update_segments_header()
+
+    def on_filter_status_changed(self, text):
+        self.segment_proxy.set_filter_status(text)
+        self.update_segments_header()
+
+    def on_sort_changed(self, text):
+        if text == "Duration":
+            self.segment_proxy.set_sort_mode(SegmentFilterProxy.SORT_DURATION)
+        elif text == "Name":
+            self.segment_proxy.set_sort_mode(SegmentFilterProxy.SORT_NAME)
+        else:
+            self.segment_proxy.set_sort_mode(SegmentFilterProxy.SORT_STATUS)
+        self.segment_proxy.sort(0, Qt.AscendingOrder)
 
 
 class SplitWorker(QObject):

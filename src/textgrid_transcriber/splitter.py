@@ -96,6 +96,9 @@ def split_audio_with_ffmpeg(
                     end_ms=end_ms,
                     path=str(output_path),
                     mark=mark,
+                    transcript="",
+                    asr_generated=False,
+                    verified=False,
                 )
             )
             completed += 1
