@@ -1,3 +1,4 @@
+import logging
 import sys
 from pathlib import Path
 
@@ -160,6 +161,8 @@ class MainWindow(QMainWindow):
         line_height = self.transcript_editor.fontMetrics().lineSpacing()
         editor_frame = self.transcript_editor.frameWidth() * 2
         self.transcript_editor.setFixedHeight((line_height * 3) + editor_frame + 6)
+        self.segment_asr_button = QPushButton("Generate ASR Transcription")
+        self.segment_asr_button.setEnabled(False)
         self.segment_verified_checkbox = QCheckBox("Verified")
         self.segment_verified_checkbox.setEnabled(False)
 
@@ -173,7 +176,11 @@ class MainWindow(QMainWindow):
         details_layout.addWidget(self.segment_seek_slider)
         details_layout.addWidget(QLabel("Transcript"))
         details_layout.addWidget(self.transcript_editor)
-        details_layout.addWidget(self.segment_verified_checkbox)
+        controls_row = QHBoxLayout()
+        controls_row.addWidget(self.segment_asr_button)
+        controls_row.addStretch(1)
+        controls_row.addWidget(self.segment_verified_checkbox)
+        details_layout.addLayout(controls_row)
         self.segment_details_group.setLayout(details_layout)
 
         segments_group = QGroupBox("Segments")
@@ -215,6 +222,13 @@ class MainWindow(QMainWindow):
 
         # Status bar (useful later for progress / ffmpeg messages)
         self.setStatusBar(QStatusBar())
+        self._logger = logging.getLogger("textgrid_transcriber")
+        if not logging.getLogger().handlers:
+            logging.basicConfig(
+                filename="textgrid_transcriber.log",
+                level=logging.INFO,
+                format="%(asctime)s %(levelname)s %(message)s",
+            )
 
         file_menu = self.menuBar().addMenu("File")
         self.open_project_action = file_menu.addAction("Open Project…")
@@ -240,6 +254,7 @@ class MainWindow(QMainWindow):
         self.segment_play_button.clicked.connect(self.play_selected_segment)
         self.segment_stop_button.clicked.connect(self.stop_selected_segment)
         self.segment_seek_slider.sliderMoved.connect(self.seek_selected_segment)
+        self.segment_seek_slider.sliderReleased.connect(self.on_seek_finished)
         self.transcript_editor.textChanged.connect(self.on_transcript_changed)
         self.segment_verified_checkbox.toggled.connect(self.on_verified_toggled)
 
@@ -259,15 +274,15 @@ class MainWindow(QMainWindow):
         try:
             ffmpeg_path = get_ffmpeg_path()
         except Exception:
-            self.statusBar().showMessage("ffmpeg not available (missing imageio-ffmpeg binary).")
+            self.show_status("ffmpeg not available (missing imageio-ffmpeg binary).")
             self.update_state()
             return
         if not ffmpeg_path.exists():
-            self.statusBar().showMessage(f"ffmpeg not found at {ffmpeg_path}")
+            self.show_status(f"ffmpeg not found at {ffmpeg_path}")
             self.update_state()
             return
         self.ffmpeg_ok = True
-        self.statusBar().showMessage(f"ffmpeg found at {ffmpeg_path}", 5000)
+        self.show_status(f"ffmpeg found at {ffmpeg_path}", 5000)
         self.update_state()
 
     def pick_audio_file(self):
@@ -297,14 +312,14 @@ class MainWindow(QMainWindow):
 
     def split_audio(self):
         if not getattr(self, "ffmpeg_ok", False):
-            self.statusBar().showMessage("ffmpeg is required to split audio.")
+            self.show_status("ffmpeg is required to split audio.")
             return
 
         audio_path = Path(self.audio_path.text().strip())
         textgrid_path = Path(self.textgrid_path.text().strip())
 
         if not audio_path.is_file() or not textgrid_path.is_file():
-            self.statusBar().showMessage("Select valid audio and TextGrid files.")
+            self.show_status("Select valid audio and TextGrid files.")
             return
 
         output_dir = audio_path.parent / "splits"
@@ -321,10 +336,11 @@ class MainWindow(QMainWindow):
                 QMessageBox.No,
             )
             if choice != QMessageBox.Yes:
+                self.show_status("Split canceled.")
                 return
 
         self.split_btn.setEnabled(False)
-        self.statusBar().showMessage("Splitting audio...")
+        self.show_status("Splitting audio...")
 
         self.worker = SplitWorker(ffmpeg_path, audio_path, textgrid_path, output_dir)
         self.worker_thread = QThread(self)
@@ -344,11 +360,11 @@ class MainWindow(QMainWindow):
 
     @Slot(int, int, str)
     def on_split_progress(self, done, total, output_name):
-        self.statusBar().showMessage(f"Split {done}/{total}: {output_name}")
+        self.show_status(f"Split {done}/{total}: {output_name}")
 
     @Slot(str)
     def on_split_failed(self, message):
-        self.statusBar().showMessage(f"Split failed: {message}")
+        self.show_status(f"Split failed: {message}")
         self.update_state()
 
     @Slot(object)
@@ -360,7 +376,7 @@ class MainWindow(QMainWindow):
         self.current_project_path = output_dir / PROJECT_FILENAME
         self.save_project_file()
         self.batch_asr_button.setEnabled(True)
-        self.statusBar().showMessage(f"Split complete. Files saved to {output_dir}")
+        self.show_status(f"Split complete. Files saved to {output_dir}")
         self.populate_segments()
         self.update_state()
 
@@ -392,6 +408,7 @@ class MainWindow(QMainWindow):
                 "TextGrid Project (*.json);;All Files (*)",
             )
             if not file_path:
+                self.show_status("Save canceled.")
                 return
             self.current_project_path = Path(file_path)
 
@@ -399,7 +416,7 @@ class MainWindow(QMainWindow):
         save_project(self.current_project_path, project)
         self.save_project_action.setEnabled(True)
         if show_status:
-            self.statusBar().showMessage(f"Project saved to {self.current_project_path}", 3000)
+            self.show_status(f"Project saved to {self.current_project_path}", 3000)
 
     def save_project_as(self):
         self.save_project_file(force_dialog=True)
@@ -412,12 +429,13 @@ class MainWindow(QMainWindow):
             "TextGrid Project (*.json);;All Files (*)",
         )
         if not file_path:
+            self.show_status("Open project canceled.")
             return
 
         try:
             project = load_project(Path(file_path))
         except Exception as exc:
-            self.statusBar().showMessage(f"Failed to load project: {exc}")
+            self.show_status(f"Failed to load project: {exc}")
             return
 
         self.current_project_path = Path(file_path)
@@ -429,7 +447,7 @@ class MainWindow(QMainWindow):
 
         self.save_project_action.setEnabled(True)
         self.batch_asr_button.setEnabled(True)
-        self.statusBar().showMessage(f"Project loaded from {self.current_project_path}", 3000)
+        self.show_status(f"Project loaded from {self.current_project_path}", 3000)
         self.populate_segments()
         self.update_state()
 
@@ -463,10 +481,12 @@ class MainWindow(QMainWindow):
     def on_filter_tier_changed(self, text):
         self.segment_proxy.set_filter_tier(text)
         self.update_segments_header()
+        self.show_status(f"Filter tier: {text}")
 
     def on_filter_status_changed(self, text):
         self.segment_proxy.set_filter_status(text)
         self.update_segments_header()
+        self.show_status(f"Filter status: {text}")
 
     def on_sort_changed(self, text):
         if text == "Duration":
@@ -476,6 +496,7 @@ class MainWindow(QMainWindow):
         else:
             self.segment_proxy.set_sort_mode(SegmentFilterProxy.SORT_STATUS)
         self.segment_proxy.sort(0, Qt.AscendingOrder)
+        self.show_status(f"Sort: {text}")
 
     def clear_segment_details(self):
         self.current_segment_row = None
@@ -486,6 +507,7 @@ class MainWindow(QMainWindow):
         self.segment_seek_slider.setEnabled(False)
         self.segment_seek_slider.setValue(0)
         self.transcript_editor.setEnabled(False)
+        self.segment_asr_button.setEnabled(False)
         self.segment_verified_checkbox.setEnabled(False)
         self.segment_verified_checkbox.setChecked(False)
         self._updating_transcript = True
@@ -496,6 +518,7 @@ class MainWindow(QMainWindow):
         selection = self.segments_table.selectionModel().selectedRows()
         if not selection:
             self.clear_segment_details()
+            self.show_status("Segment selection cleared.")
             return
 
         proxy_index = selection[0]
@@ -509,6 +532,7 @@ class MainWindow(QMainWindow):
         self.segment_stop_button.setEnabled(True)
         self.segment_seek_slider.setEnabled(True)
         self.transcript_editor.setEnabled(True)
+        self.segment_asr_button.setEnabled(True)
         self.segment_verified_checkbox.setEnabled(True)
 
         self._updating_transcript = True
@@ -517,17 +541,24 @@ class MainWindow(QMainWindow):
         self._updating_transcript = False
 
         self.player.setSource(QUrl.fromLocalFile(segment.path))
+        self.show_status(f"Selected segment: {Path(segment.path).name}")
 
     def play_selected_segment(self):
         if self.current_segment_row is None:
             return
         self.player.play()
+        self.show_status("Playback started.")
 
     def stop_selected_segment(self):
         self.player.stop()
+        self.show_status("Playback stopped.")
 
     def seek_selected_segment(self, position):
         self.player.setPosition(position)
+
+    def on_seek_finished(self):
+        position = self.segment_seek_slider.value()
+        self.show_status(f"Seek to {position} ms.")
 
     def on_player_position_changed(self, position):
         if not self.segment_seek_slider.isSliderDown():
@@ -545,8 +576,10 @@ class MainWindow(QMainWindow):
         self.segment_proxy.invalidate()
         self.segment_proxy.sort(0, Qt.AscendingOrder)
         self.update_segments_header()
+        self.show_status("Transcript updated.")
         if self.current_project_path is not None:
             self.save_project_file(show_status=False)
+            self.show_status("Transcript saved.")
 
     def on_verified_toggled(self, checked):
         if self._updating_transcript or self.current_segment_row is None:
@@ -557,8 +590,17 @@ class MainWindow(QMainWindow):
         self.segment_proxy.invalidate()
         self.segment_proxy.sort(0, Qt.AscendingOrder)
         self.update_segments_header()
+        self.show_status(f"Verified set to {checked}.")
         if self.current_project_path is not None:
             self.save_project_file(show_status=False)
+            self.show_status("Verification saved.")
+
+    def show_status(self, message: str, timeout: int | None = 3000):
+        if timeout is None:
+            self.statusBar().showMessage(message)
+        else:
+            self.statusBar().showMessage(message, timeout)
+        self._logger.info(message)
 
 
 class SplitWorker(QObject):
