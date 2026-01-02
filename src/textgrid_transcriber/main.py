@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from textgrid_transcriber.ffmpeg import get_ffmpeg_path
+
 
 AUDIO_FILTER = "Audio Files (*.mp3 *.wav *.flac *.mpg *.mpeg *.mp4 *.m4a *.aac *.ogg);;All Files (*)"
 TEXTGRID_FILTER = "TextGrid Files (*.TextGrid *.textgrid);;All Files (*)"
@@ -113,6 +115,8 @@ class MainWindow(QMainWindow):
         # Status bar (useful later for progress / ffmpeg messages)
         self.setStatusBar(QStatusBar())
 
+        self.check_ffmpeg()
+
         # --- Connections
         audio_browse.clicked.connect(self.pick_audio_file)
         textgrid_browse.clicked.connect(self.pick_textgrid_file)
@@ -120,6 +124,22 @@ class MainWindow(QMainWindow):
         self.textgrid_path.textChanged.connect(self.update_state)
 
         self.resize(620, 240)
+
+    def check_ffmpeg(self):
+        self.ffmpeg_ok = False
+        try:
+            ffmpeg_path = get_ffmpeg_path()
+        except Exception:
+            self.statusBar().showMessage("ffmpeg not available (missing imageio-ffmpeg binary).")
+            self.update_state()
+            return
+        if not ffmpeg_path.exists():
+            self.statusBar().showMessage(f"ffmpeg not found at {ffmpeg_path}")
+            self.update_state()
+            return
+        self.ffmpeg_ok = True
+        self.statusBar().showMessage(f"ffmpeg found at {ffmpeg_path}", 5000)
+        self.update_state()
 
     def pick_audio_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select audio file", "", AUDIO_FILTER)
@@ -135,15 +155,16 @@ class MainWindow(QMainWindow):
         a = Path(self.audio_path.text().strip())
         t = Path(self.textgrid_path.text().strip())
 
-        ok = a.is_file() and t.is_file()
+        ok = a.is_file() and t.is_file() and getattr(self, "ffmpeg_ok", False)
         self.split_btn.setEnabled(ok)
 
         if ok:
             self.hint.setText("Ready.")
-            self.statusBar().showMessage("Ready to split.", 3000)
         else:
-            self.hint.setText("Choose both files to continue.")
-            self.statusBar().clearMessage()
+            if not getattr(self, "ffmpeg_ok", False):
+                self.hint.setText("ffmpeg is required to split audio.")
+            else:
+                self.hint.setText("Choose both files to continue.")
 
 
 def main():
