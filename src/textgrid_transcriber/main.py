@@ -1,8 +1,9 @@
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot, QUrl
 from PySide6.QtGui import QFont
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -16,6 +17,8 @@ from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
     QHeaderView,
+    QPlainTextEdit,
+    QSlider,
     QTableView,
     QMessageBox,
     QSizePolicy,
@@ -96,10 +99,8 @@ class MainWindow(QMainWindow):
         form.addRow("Audio", audio_row)
         form.addRow("TextGrid", textgrid_row)
 
-        self.batch_asr_checkbox = QCheckBox("Enable batch ASR transcription")
-        self.batch_asr_checkbox.setStatusTip(
-            "Run speech recognition on all segments after splitting. Takes longer for large files."
-        )
+        self.batch_asr_button = QPushButton("Run batch ASR transcription")
+        self.batch_asr_button.setEnabled(False)
 
         self.segments_header = QLabel("Segments (0 total, 0 verified)")
         self.segment_model = SegmentTableModel()
@@ -107,8 +108,6 @@ class MainWindow(QMainWindow):
         self.segment_proxy.setSourceModel(self.segment_model)
         self.segment_proxy.setSortCaseSensitivity(Qt.CaseInsensitive)
 
-        self.filter_text = QLineEdit()
-        self.filter_text.setPlaceholderText("Filter by name or transcript")
         self.filter_tier = QComboBox()
         self.filter_status = QComboBox()
         self.filter_sort = QComboBox()
@@ -117,14 +116,14 @@ class MainWindow(QMainWindow):
         self.filter_sort.addItems(["Status", "Duration", "Name"])
 
         filters_row = QHBoxLayout()
-        filters_row.addWidget(QLabel("Filter"))
-        filters_row.addWidget(self.filter_text, 1)
         filters_row.addWidget(QLabel("Tier"))
         filters_row.addWidget(self.filter_tier)
         filters_row.addWidget(QLabel("Status"))
         filters_row.addWidget(self.filter_status)
         filters_row.addWidget(QLabel("Sort"))
         filters_row.addWidget(self.filter_sort)
+        filters_row.addStretch(1)
+        filters_row.addWidget(self.batch_asr_button)
 
         self.segments_table = QTableView()
         self.segments_table.setModel(self.segment_proxy)
@@ -138,12 +137,51 @@ class MainWindow(QMainWindow):
         self.segments_table.horizontalHeader().setSectionResizeMode(
             SegmentTableModel.COLUMN_STATUS, QHeaderView.ResizeToContents
         )
+        row_height = self.segments_table.verticalHeader().defaultSectionSize()
+        header_height = self.segments_table.horizontalHeader().height()
+        table_frame = self.segments_table.frameWidth() * 2
+        self.segments_table.setMinimumHeight(header_height + (row_height * 3) + table_frame)
+
+        self.segment_details_group = QGroupBox("Selected segment")
+        self.segment_details_group.setVisible(False)
+        self.segment_file_label = QLabel("No segment selected.")
+        self.segment_play_button = QPushButton("Play")
+        self.segment_stop_button = QPushButton("Stop")
+        self.segment_play_button.setEnabled(False)
+        self.segment_stop_button.setEnabled(False)
+        self.segment_seek_slider = QSlider(Qt.Horizontal)
+        self.segment_seek_slider.setEnabled(False)
+        self.segment_seek_slider.setMinimum(0)
+        self.segment_seek_slider.setMaximum(0)
+
+        self.transcript_editor = QPlainTextEdit()
+        self.transcript_editor.setPlaceholderText("Transcript will appear here.")
+        self.transcript_editor.setEnabled(False)
+        line_height = self.transcript_editor.fontMetrics().lineSpacing()
+        editor_frame = self.transcript_editor.frameWidth() * 2
+        self.transcript_editor.setFixedHeight((line_height * 3) + editor_frame + 6)
+        self.segment_verified_checkbox = QCheckBox("Verified")
+        self.segment_verified_checkbox.setEnabled(False)
+
+        playback_row = QHBoxLayout()
+        playback_row.addWidget(self.segment_file_label, 1)
+        playback_row.addWidget(self.segment_play_button)
+        playback_row.addWidget(self.segment_stop_button)
+
+        details_layout = QVBoxLayout()
+        details_layout.addLayout(playback_row)
+        details_layout.addWidget(self.segment_seek_slider)
+        details_layout.addWidget(QLabel("Transcript"))
+        details_layout.addWidget(self.transcript_editor)
+        details_layout.addWidget(self.segment_verified_checkbox)
+        self.segment_details_group.setLayout(details_layout)
 
         segments_group = QGroupBox("Segments")
         segments_layout = QVBoxLayout()
         segments_layout.addWidget(self.segments_header)
         segments_layout.addLayout(filters_row)
         segments_layout.addWidget(self.segments_table)
+        segments_layout.addWidget(self.segment_details_group)
         segments_group.setLayout(segments_layout)
 
         # --- Primary action
@@ -167,7 +205,6 @@ class MainWindow(QMainWindow):
         root.addWidget(subtitle)
         root.addSpacing(6)
         root.addLayout(form)
-        root.addWidget(self.batch_asr_checkbox)
         root.addLayout(actions)
         root.addWidget(segments_group)
         root.addStretch(1)
@@ -193,17 +230,29 @@ class MainWindow(QMainWindow):
         self.audio_path.textChanged.connect(self.update_state)
         self.textgrid_path.textChanged.connect(self.update_state)
         self.split_btn.clicked.connect(self.split_audio)
-        self.batch_asr_checkbox.stateChanged.connect(self.maybe_autosave)
         self.open_project_action.triggered.connect(self.open_project)
         self.save_project_action.triggered.connect(self.save_project_file)
         self.save_project_as_action.triggered.connect(self.save_project_as)
-        self.filter_text.textChanged.connect(self.on_filter_text_changed)
         self.filter_tier.currentTextChanged.connect(self.on_filter_tier_changed)
         self.filter_status.currentTextChanged.connect(self.on_filter_status_changed)
         self.filter_sort.currentTextChanged.connect(self.on_sort_changed)
+        self.segments_table.selectionModel().selectionChanged.connect(self.on_segment_selection_changed)
+        self.segment_play_button.clicked.connect(self.play_selected_segment)
+        self.segment_stop_button.clicked.connect(self.stop_selected_segment)
+        self.segment_seek_slider.sliderMoved.connect(self.seek_selected_segment)
+        self.transcript_editor.textChanged.connect(self.on_transcript_changed)
+        self.segment_verified_checkbox.toggled.connect(self.on_verified_toggled)
 
         self.resize(620, 620)
         self.segment_proxy.sort(0, Qt.AscendingOrder)
+
+        self._updating_transcript = False
+        self.current_segment_row: int | None = None
+        self.audio_output = QAudioOutput(self)
+        self.player = QMediaPlayer(self)
+        self.player.setAudioOutput(self.audio_output)
+        self.player.positionChanged.connect(self.on_player_position_changed)
+        self.player.durationChanged.connect(self.on_player_duration_changed)
 
     def check_ffmpeg(self):
         self.ffmpeg_ok = False
@@ -310,6 +359,7 @@ class MainWindow(QMainWindow):
 
         self.current_project_path = output_dir / PROJECT_FILENAME
         self.save_project_file()
+        self.batch_asr_button.setEnabled(True)
         self.statusBar().showMessage(f"Split complete. Files saved to {output_dir}")
         self.populate_segments()
         self.update_state()
@@ -326,14 +376,9 @@ class MainWindow(QMainWindow):
             audio_path=str(audio_path),
             textgrid_path=str(textgrid_path),
             output_dir=str(output_dir) if output_dir else "",
-            batch_asr=self.batch_asr_checkbox.isChecked(),
+            batch_asr=False,
             segments=self.current_segments,
         )
-
-    def maybe_autosave(self):
-        if self.current_project_path is None:
-            return
-        self.save_project_file(show_status=False)
 
     def save_project_file(self, show_status=True, force_dialog=False):
         if self.current_project_path is None or force_dialog:
@@ -381,9 +426,9 @@ class MainWindow(QMainWindow):
 
         self.audio_path.setText(project.audio_path)
         self.textgrid_path.setText(project.textgrid_path)
-        self.batch_asr_checkbox.setChecked(project.batch_asr)
 
         self.save_project_action.setEnabled(True)
+        self.batch_asr_button.setEnabled(True)
         self.statusBar().showMessage(f"Project loaded from {self.current_project_path}", 3000)
         self.populate_segments()
         self.update_state()
@@ -392,6 +437,7 @@ class MainWindow(QMainWindow):
         self.segment_model.set_segments(self.current_segments)
         self.refresh_filters()
         self.update_segments_header()
+        self.clear_segment_details()
 
     def refresh_filters(self):
         tiers = sorted({segment.tier for segment in self.current_segments})
@@ -414,10 +460,6 @@ class MainWindow(QMainWindow):
         verified = sum(1 for segment in self.current_segments if segment_status(segment) == STATUS_VERIFIED)
         self.segments_header.setText(f"Segments ({total} total, {verified} verified)")
 
-    def on_filter_text_changed(self, text):
-        self.segment_proxy.set_filter_text(text)
-        self.update_segments_header()
-
     def on_filter_tier_changed(self, text):
         self.segment_proxy.set_filter_tier(text)
         self.update_segments_header()
@@ -434,6 +476,89 @@ class MainWindow(QMainWindow):
         else:
             self.segment_proxy.set_sort_mode(SegmentFilterProxy.SORT_STATUS)
         self.segment_proxy.sort(0, Qt.AscendingOrder)
+
+    def clear_segment_details(self):
+        self.current_segment_row = None
+        self.segment_details_group.setVisible(False)
+        self.segment_file_label.setText("No segment selected.")
+        self.segment_play_button.setEnabled(False)
+        self.segment_stop_button.setEnabled(False)
+        self.segment_seek_slider.setEnabled(False)
+        self.segment_seek_slider.setValue(0)
+        self.transcript_editor.setEnabled(False)
+        self.segment_verified_checkbox.setEnabled(False)
+        self.segment_verified_checkbox.setChecked(False)
+        self._updating_transcript = True
+        self.transcript_editor.setPlainText("")
+        self._updating_transcript = False
+
+    def on_segment_selection_changed(self, *_):
+        selection = self.segments_table.selectionModel().selectedRows()
+        if not selection:
+            self.clear_segment_details()
+            return
+
+        proxy_index = selection[0]
+        source_index = self.segment_proxy.mapToSource(proxy_index)
+        segment = self.segment_model.segment_at(source_index.row())
+
+        self.current_segment_row = source_index.row()
+        self.segment_file_label.setText(Path(segment.path).name)
+        self.segment_details_group.setVisible(True)
+        self.segment_play_button.setEnabled(True)
+        self.segment_stop_button.setEnabled(True)
+        self.segment_seek_slider.setEnabled(True)
+        self.transcript_editor.setEnabled(True)
+        self.segment_verified_checkbox.setEnabled(True)
+
+        self._updating_transcript = True
+        self.transcript_editor.setPlainText(segment.transcript)
+        self.segment_verified_checkbox.setChecked(segment.verified)
+        self._updating_transcript = False
+
+        self.player.setSource(QUrl.fromLocalFile(segment.path))
+
+    def play_selected_segment(self):
+        if self.current_segment_row is None:
+            return
+        self.player.play()
+
+    def stop_selected_segment(self):
+        self.player.stop()
+
+    def seek_selected_segment(self, position):
+        self.player.setPosition(position)
+
+    def on_player_position_changed(self, position):
+        if not self.segment_seek_slider.isSliderDown():
+            self.segment_seek_slider.setValue(position)
+
+    def on_player_duration_changed(self, duration):
+        self.segment_seek_slider.setMaximum(duration)
+
+    def on_transcript_changed(self):
+        if self._updating_transcript or self.current_segment_row is None:
+            return
+        segment = self.segment_model.segment_at(self.current_segment_row)
+        segment.transcript = self.transcript_editor.toPlainText()
+        self.segment_model.update_segment(self.current_segment_row)
+        self.segment_proxy.invalidate()
+        self.segment_proxy.sort(0, Qt.AscendingOrder)
+        self.update_segments_header()
+        if self.current_project_path is not None:
+            self.save_project_file(show_status=False)
+
+    def on_verified_toggled(self, checked):
+        if self._updating_transcript or self.current_segment_row is None:
+            return
+        segment = self.segment_model.segment_at(self.current_segment_row)
+        segment.verified = checked
+        self.segment_model.update_segment(self.current_segment_row)
+        self.segment_proxy.invalidate()
+        self.segment_proxy.sort(0, Qt.AscendingOrder)
+        self.update_segments_header()
+        if self.current_project_path is not None:
+            self.save_project_file(show_status=False)
 
 
 class SplitWorker(QObject):

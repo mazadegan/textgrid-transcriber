@@ -13,10 +13,10 @@ STATUS_VERIFIED = "Verified"
 
 
 def segment_status(segment: Segment) -> str:
-    if not segment.transcript.strip():
-        return STATUS_EMPTY
     if segment.verified:
         return STATUS_VERIFIED
+    if not segment.transcript.strip():
+        return STATUS_EMPTY
     return STATUS_UNVERIFIED
 
 
@@ -82,6 +82,12 @@ class SegmentTableModel(QAbstractTableModel):
 
     def segment_at(self, row: int) -> Segment:
         return self._segments[row]
+
+    def update_segment(self, row: int) -> None:
+        if 0 <= row < len(self._segments):
+            left = self.index(row, 0)
+            right = self.index(row, self.columnCount() - 1)
+            self.dataChanged.emit(left, right, [Qt.DisplayRole, Qt.UserRole])
 
 
 class SegmentFilterProxy(QSortFilterProxyModel):
