@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QTableView,
     QMessageBox,
+    QDialog,
     QSizePolicy,
     QStatusBar,
     QVBoxLayout,
@@ -229,12 +230,15 @@ class MainWindow(QMainWindow):
                 level=logging.INFO,
                 format="%(asctime)s %(levelname)s %(message)s",
             )
+        self.log_path = Path("textgrid_transcriber.log").resolve()
 
         file_menu = self.menuBar().addMenu("File")
         self.open_project_action = file_menu.addAction("Open Project…")
         self.save_project_action = file_menu.addAction("Save Project")
         self.save_project_as_action = file_menu.addAction("Save Project As…")
         self.save_project_action.setEnabled(False)
+        help_menu = self.menuBar().addMenu("Help")
+        self.view_log_action = help_menu.addAction("View Log…")
 
         self.check_ffmpeg()
 
@@ -247,6 +251,7 @@ class MainWindow(QMainWindow):
         self.open_project_action.triggered.connect(self.open_project)
         self.save_project_action.triggered.connect(self.save_project_file)
         self.save_project_as_action.triggered.connect(self.save_project_as)
+        self.view_log_action.triggered.connect(self.open_log_window)
         self.filter_tier.currentTextChanged.connect(self.on_filter_tier_changed)
         self.filter_status.currentTextChanged.connect(self.on_filter_status_changed)
         self.filter_sort.currentTextChanged.connect(self.on_sort_changed)
@@ -601,6 +606,23 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage(message, timeout)
         self._logger.info(message)
+
+    def open_log_window(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Application Log")
+        dialog.resize(720, 420)
+
+        log_view = QPlainTextEdit()
+        log_view.setReadOnly(True)
+        if self.log_path.exists():
+            log_view.setPlainText(self.log_path.read_text(encoding="utf-8"))
+        else:
+            log_view.setPlainText("Log file not found.")
+
+        layout = QVBoxLayout()
+        layout.addWidget(log_view)
+        dialog.setLayout(layout)
+        dialog.exec()
 
 
 class SplitWorker(QObject):
