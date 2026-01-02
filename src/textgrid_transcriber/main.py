@@ -233,12 +233,14 @@ class MainWindow(QMainWindow):
         self.log_path = Path("textgrid_transcriber.log").resolve()
 
         file_menu = self.menuBar().addMenu("File")
+        edit_menu = self.menuBar().addMenu("Edit")
         self.open_project_action = file_menu.addAction("Open Project…")
         self.save_project_action = file_menu.addAction("Save Project")
         self.save_project_as_action = file_menu.addAction("Save Project As…")
         self.save_project_action.setEnabled(False)
-        help_menu = self.menuBar().addMenu("Help")
-        self.view_log_action = help_menu.addAction("View Log…")
+        log_menu = self.menuBar().addMenu("Logs")
+        self.view_log_action = log_menu.addAction("View Logs…")
+        self.credentials_action = edit_menu.addAction("Set Google Credentials…")
 
         self.check_ffmpeg()
 
@@ -251,6 +253,8 @@ class MainWindow(QMainWindow):
         self.open_project_action.triggered.connect(self.open_project)
         self.save_project_action.triggered.connect(self.save_project_file)
         self.save_project_as_action.triggered.connect(self.save_project_as)
+        self.view_log_action.triggered.connect(self.open_log_window)
+        self.credentials_action.triggered.connect(self.set_credentials)
         self.view_log_action.triggered.connect(self.open_log_window)
         self.filter_tier.currentTextChanged.connect(self.on_filter_tier_changed)
         self.filter_status.currentTextChanged.connect(self.on_filter_status_changed)
@@ -623,6 +627,19 @@ class MainWindow(QMainWindow):
         layout.addWidget(log_view)
         dialog.setLayout(layout)
         dialog.exec()
+
+    def set_credentials(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Google Cloud credentials JSON",
+            "",
+            "JSON Files (*.json);;All Files (*)",
+        )
+        if not file_path:
+            self.show_status("Credentials selection canceled.")
+            return
+        self.credentials_path = Path(file_path)
+        self.show_status(f"Credentials set to {self.credentials_path}")
 
 
 class SplitWorker(QObject):
