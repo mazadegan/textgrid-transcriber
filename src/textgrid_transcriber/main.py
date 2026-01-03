@@ -62,7 +62,6 @@ class MainWindow(QMainWindow):
         title.setFont(title_font)
 
         subtitle = QLabel("Select an audio file and its TextGrid to split and transcribe.")
-        subtitle.setStyleSheet("color: rgba(0,0,0,0.65);")  # subtle; works OK on light themes
         subtitle.setWordWrap(True)
 
         # --- Inputs
@@ -198,7 +197,6 @@ class MainWindow(QMainWindow):
         self.split_btn.setDefault(True)  # Enter triggers it
 
         self.hint = QLabel("Choose both files to continue.")
-        self.hint.setStyleSheet("color: rgba(0,0,0,0.65);")
 
         actions = QHBoxLayout()
         actions.addWidget(self.hint)
@@ -629,6 +627,12 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def set_credentials(self):
+        QMessageBox.information(
+            self,
+            "Google Credentials",
+            "Select a Google Cloud service account JSON key file.\n"
+            "Create one in Google Cloud Console: IAM & Admin → Service Accounts → Keys.",
+        )
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Google Cloud credentials JSON",
