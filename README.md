@@ -49,3 +49,22 @@ python -m textgrid_transcriber.main
 2. Click **Split** to generate per-segment audio in a `splits/` folder.
 3. Select a segment to play it, edit the transcript, and mark it verified.
 4. Use **Set Google Credentials…** before running ASR if you want automatic transcription.
+
+## Packaging (PyInstaller)
+
+Build on each target OS (PyInstaller cannot cross-compile).
+
+macOS:
+```bash
+scripts/build-macos.sh
+```
+
+Linux:
+```bash
+scripts/build-linux.sh
+```
+
+Windows (PowerShell):
+```powershell
+scripts/build-windows.ps1
+```

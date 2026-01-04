@@ -288,13 +288,15 @@ class MainWindow(QMainWindow):
         # Status bar (useful later for progress / ffmpeg messages)
         self.setStatusBar(QStatusBar())
         self._logger = logging.getLogger("textgrid_transcriber")
+        log_dir = Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+        log_dir.mkdir(parents=True, exist_ok=True)
+        self.log_path = (log_dir / "textgrid_transcriber.log").resolve()
         if not logging.getLogger().handlers:
             logging.basicConfig(
-                filename="textgrid_transcriber.log",
+                filename=str(self.log_path),
                 level=logging.INFO,
                 format="%(asctime)s %(levelname)s %(message)s",
             )
-        self.log_path = Path("textgrid_transcriber.log").resolve()
 
         file_menu = self.menuBar().addMenu("File")
         edit_menu = self.menuBar().addMenu("Edit")

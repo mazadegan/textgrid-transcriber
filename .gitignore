@@ -9,3 +9,6 @@ wheels/
 # Virtual environments
 .venv
 textgrid_transcriber.log
+src/textgrid_transcriber/main.py
+
+.DS_STORE
