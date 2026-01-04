@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QPlainTextEdit,
     QSlider,
+    QStackedWidget,
     QTableView,
     QMessageBox,
     QDialog,
@@ -58,15 +59,15 @@ class MainWindow(QMainWindow):
         self.credentials_path: Path | None = None
         self.asr_model = "latest_long"
 
-        # --- Header
-        title = QLabel("TextGrid Transcriber")
-        title_font = QFont()
-        title_font.setPointSize(16)
-        title_font.setBold(True)
-        title.setFont(title_font)
+        # --- Headers
+        setup_title = QLabel("New Project")
+        setup_title_font = QFont()
+        setup_title_font.setPointSize(16)
+        setup_title_font.setBold(True)
+        setup_title.setFont(setup_title_font)
 
-        subtitle = QLabel("Select an audio file and its TextGrid to split and transcribe.")
-        subtitle.setWordWrap(True)
+        setup_subtitle = QLabel("Select an audio file and its TextGrid to split and transcribe.")
+        setup_subtitle.setWordWrap(True)
 
         # --- Inputs
         self.audio_path = QLineEdit()
@@ -187,6 +188,26 @@ class MainWindow(QMainWindow):
         details_layout.addLayout(controls_row)
         self.segment_details_group.setLayout(details_layout)
 
+        self.project_title = QLabel("Project")
+        project_title_font = QFont()
+        project_title_font.setPointSize(16)
+        project_title_font.setBold(True)
+        self.project_title.setFont(project_title_font)
+        self.project_info = QLabel("No project loaded.")
+        self.project_info.setWordWrap(True)
+
+        self.welcome_title = QLabel("TextGrid Transcriber")
+        welcome_title_font = QFont()
+        welcome_title_font.setPointSize(18)
+        welcome_title_font.setBold(True)
+        self.welcome_title.setFont(welcome_title_font)
+        self.welcome_subtitle = QLabel("Start a new project or open an existing one.")
+        self.welcome_subtitle.setWordWrap(True)
+        self.new_project_button = QPushButton("New Project")
+        self.new_project_button.setDefault(True)
+        self.new_project_button.setAutoDefault(True)
+        self.open_project_button = QPushButton("Open Existing Project")
+
         segments_group = QGroupBox("Segments")
         segments_layout = QVBoxLayout()
         segments_layout.addWidget(self.segments_header)
@@ -196,7 +217,7 @@ class MainWindow(QMainWindow):
         segments_group.setLayout(segments_layout)
 
         # --- Primary action
-        self.split_btn = QPushButton("Split")
+        self.split_btn = QPushButton("Continue")
         self.split_btn.setEnabled(False)
         self.split_btn.setDefault(True)  # Enter triggers it
 
@@ -207,21 +228,51 @@ class MainWindow(QMainWindow):
         actions.addStretch(1)
         actions.addWidget(self.split_btn)
 
-        # --- Layout root
-        root = QVBoxLayout()
-        root.setContentsMargins(20, 18, 20, 18)
-        root.setSpacing(14)
-        root.addWidget(title)
-        root.addWidget(subtitle)
-        root.addSpacing(6)
-        root.addLayout(form)
-        root.addLayout(actions)
-        root.addWidget(segments_group)
-        root.addStretch(1)
+        # --- Pages
+        welcome_layout = QVBoxLayout()
+        welcome_layout.setContentsMargins(20, 18, 20, 18)
+        welcome_layout.setSpacing(8)
+        welcome_layout.addWidget(self.welcome_title)
+        welcome_layout.addWidget(self.welcome_subtitle)
+        welcome_layout.addSpacing(6)
+        welcome_buttons = QHBoxLayout()
+        welcome_buttons.addWidget(self.new_project_button)
+        welcome_buttons.addWidget(self.open_project_button)
+        welcome_buttons.addStretch(1)
+        welcome_layout.addLayout(welcome_buttons)
+        welcome_layout.addStretch(1)
+        welcome_page = QWidget()
+        welcome_page.setLayout(welcome_layout)
 
-        central = QWidget()
-        central.setLayout(root)
-        self.setCentralWidget(central)
+        setup_layout = QVBoxLayout()
+        setup_layout.setContentsMargins(20, 18, 20, 18)
+        setup_layout.setSpacing(14)
+        setup_layout.addWidget(setup_title)
+        setup_layout.addWidget(setup_subtitle)
+        setup_layout.addSpacing(6)
+        setup_layout.addLayout(form)
+        setup_layout.addLayout(actions)
+        setup_layout.addStretch(1)
+        setup_page = QWidget()
+        setup_page.setLayout(setup_layout)
+
+        project_layout = QVBoxLayout()
+        project_layout.setContentsMargins(20, 18, 20, 18)
+        project_layout.setSpacing(14)
+        project_layout.addWidget(self.project_title)
+        project_layout.addWidget(self.project_info)
+        project_layout.addSpacing(6)
+        project_layout.addWidget(segments_group)
+        project_layout.addStretch(1)
+        project_page = QWidget()
+        project_page.setLayout(project_layout)
+
+        self.pages = QStackedWidget()
+        self.page_welcome = self.pages.addWidget(welcome_page)
+        self.page_setup = self.pages.addWidget(setup_page)
+        self.page_project = self.pages.addWidget(project_page)
+        self.pages.setCurrentIndex(self.page_welcome)
+        self.setCentralWidget(self.pages)
 
         # Status bar (useful later for progress / ffmpeg messages)
         self.setStatusBar(QStatusBar())
@@ -267,6 +318,8 @@ class MainWindow(QMainWindow):
         self.save_project_as_action.triggered.connect(self.save_project_as)
         self.view_log_action.triggered.connect(self.open_log_window)
         self.credentials_action.triggered.connect(self.set_credentials)
+        self.new_project_button.clicked.connect(self.start_new_project)
+        self.open_project_button.clicked.connect(self.open_project_from_welcome)
         self.filter_tier.currentTextChanged.connect(self.on_filter_tier_changed)
         self.filter_status.currentTextChanged.connect(self.on_filter_status_changed)
         self.filter_sort.currentTextChanged.connect(self.on_sort_changed)
@@ -280,7 +333,6 @@ class MainWindow(QMainWindow):
         self.segment_asr_button.clicked.connect(self.run_asr_for_selected)
         self.batch_asr_button.clicked.connect(self.run_batch_asr)
 
-        self.resize(620, 620)
         self.segment_proxy.sort(0, Qt.AscendingOrder)
 
         self._updating_transcript = False
@@ -293,6 +345,7 @@ class MainWindow(QMainWindow):
 
         self.asr_worker = None
         self.asr_thread = None
+        self.show_welcome()
 
     def check_ffmpeg(self):
         self.ffmpeg_ok = False
@@ -309,6 +362,61 @@ class MainWindow(QMainWindow):
         self.ffmpeg_ok = True
         self.show_status(f"ffmpeg found at {ffmpeg_path}", 5000)
         self.update_state()
+
+    def show_welcome(self):
+        self.pages.setCurrentIndex(self.page_welcome)
+        self._set_pages_fixed_to_current()
+        self.adjustSize()
+
+    def show_setup(self):
+        self.pages.setCurrentIndex(self.page_setup)
+        self._set_pages_resizable()
+        self.adjustSize()
+
+    def show_project(self):
+        self.pages.setCurrentIndex(self.page_project)
+        self._set_pages_resizable()
+        self.adjustSize()
+
+    def _set_pages_fixed_to_current(self):
+        size = self.pages.currentWidget().sizeHint()
+        self.pages.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.pages.setMinimumSize(size)
+        self.pages.setMaximumSize(size)
+
+    def _set_pages_resizable(self):
+        self.pages.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.pages.setMinimumSize(0, 0)
+        self.pages.setMaximumSize(16777215, 16777215)
+
+    def update_project_info(self):
+        audio_name = Path(self.audio_path.text().strip()).name if self.audio_path.text().strip() else ""
+        textgrid_name = Path(self.textgrid_path.text().strip()).name if self.textgrid_path.text().strip() else ""
+        if audio_name and textgrid_name:
+            self.project_info.setText(f"Audio: {audio_name}\nTextGrid: {textgrid_name}")
+        elif audio_name:
+            self.project_info.setText(f"Audio: {audio_name}")
+        else:
+            self.project_info.setText("No project loaded.")
+
+    def start_new_project(self):
+        self.current_project_path = None
+        self.current_output_dir = None
+        self.current_segments = []
+        self.audio_path.setText("")
+        self.textgrid_path.setText("")
+        self.batch_asr_button.setEnabled(False)
+        self.segment_asr_button.setEnabled(False)
+        self.segment_model.set_segments([])
+        self.refresh_filters()
+        self.update_segments_header()
+        self.clear_segment_details()
+        self.update_project_info()
+        self.show_setup()
+        self.update_state()
+
+    def open_project_from_welcome(self):
+        self.open_project()
 
     def pick_audio_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select audio file", "", AUDIO_FILTER)
@@ -404,6 +512,8 @@ class MainWindow(QMainWindow):
         self.show_status(f"Split complete. Files saved to {output_dir}")
         self.populate_segments()
         self.update_state()
+        self.update_project_info()
+        self.show_project()
 
     def _build_project(self) -> Project:
         audio_path = Path(self.audio_path.text().strip())
@@ -448,7 +558,7 @@ class MainWindow(QMainWindow):
     def save_project_as(self):
         self.save_project_file(force_dialog=True)
 
-    def open_project(self):
+    def open_project(self) -> bool:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Open project",
@@ -457,13 +567,13 @@ class MainWindow(QMainWindow):
         )
         if not file_path:
             self.show_status("Open project canceled.")
-            return
+            return False
 
         try:
             project = load_project(Path(file_path))
         except Exception as exc:
             self.show_status(f"Failed to load project: {exc}")
-            return
+            return False
 
         self.current_project_path = Path(file_path)
         self.current_output_dir = Path(project.output_dir)
@@ -481,6 +591,9 @@ class MainWindow(QMainWindow):
         self.show_status(f"Project loaded from {self.current_project_path}", 3000)
         self.populate_segments()
         self.update_state()
+        self.update_project_info()
+        self.show_project()
+        return True
 
     def populate_segments(self):
         self.segment_model.set_segments(self.current_segments)
