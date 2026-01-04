@@ -1,9 +1,10 @@
 import logging
+import os
 import sys
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot, QUrl
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QAction, QActionGroup, QFont
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from textgrid_transcriber.asr import transcribe_wav
 from textgrid_transcriber.ffmpeg import get_ffmpeg_path
 from textgrid_transcriber.segments_model import (
     STATUS_EMPTY,
@@ -53,6 +55,8 @@ class MainWindow(QMainWindow):
         self.current_project_path: Path | None = None
         self.current_output_dir: Path | None = None
         self.current_segments: list[Segment] = []
+        self.credentials_path: Path | None = None
+        self.asr_model = "latest_long"
 
         # --- Header
         title = QLabel("TextGrid Transcriber")
@@ -239,6 +243,16 @@ class MainWindow(QMainWindow):
         log_menu = self.menuBar().addMenu("Logs")
         self.view_log_action = log_menu.addAction("View Logs…")
         self.credentials_action = edit_menu.addAction("Set Google Credentials…")
+        model_menu = edit_menu.addMenu("ASR Model")
+        model_group = QActionGroup(self)
+        model_group.setExclusive(True)
+        for model_name in ["latest_long", "latest_short", "command_and_search", "phone_call"]:
+            action = QAction(model_name, self, checkable=True)
+            if model_name == self.asr_model:
+                action.setChecked(True)
+            action.triggered.connect(lambda checked, name=model_name: self.set_asr_model(name))
+            model_group.addAction(action)
+            model_menu.addAction(action)
 
         self.check_ffmpeg()
 
@@ -253,7 +267,6 @@ class MainWindow(QMainWindow):
         self.save_project_as_action.triggered.connect(self.save_project_as)
         self.view_log_action.triggered.connect(self.open_log_window)
         self.credentials_action.triggered.connect(self.set_credentials)
-        self.view_log_action.triggered.connect(self.open_log_window)
         self.filter_tier.currentTextChanged.connect(self.on_filter_tier_changed)
         self.filter_status.currentTextChanged.connect(self.on_filter_status_changed)
         self.filter_sort.currentTextChanged.connect(self.on_sort_changed)
@@ -264,6 +277,8 @@ class MainWindow(QMainWindow):
         self.segment_seek_slider.sliderReleased.connect(self.on_seek_finished)
         self.transcript_editor.textChanged.connect(self.on_transcript_changed)
         self.segment_verified_checkbox.toggled.connect(self.on_verified_toggled)
+        self.segment_asr_button.clicked.connect(self.run_asr_for_selected)
+        self.batch_asr_button.clicked.connect(self.run_batch_asr)
 
         self.resize(620, 620)
         self.segment_proxy.sort(0, Qt.AscendingOrder)
@@ -275,6 +290,9 @@ class MainWindow(QMainWindow):
         self.player.setAudioOutput(self.audio_output)
         self.player.positionChanged.connect(self.on_player_position_changed)
         self.player.durationChanged.connect(self.on_player_duration_changed)
+
+        self.asr_worker = None
+        self.asr_thread = None
 
     def check_ffmpeg(self):
         self.ffmpeg_ok = False
@@ -400,6 +418,8 @@ class MainWindow(QMainWindow):
             textgrid_path=str(textgrid_path),
             output_dir=str(output_dir) if output_dir else "",
             batch_asr=False,
+            credentials_path=str(self.credentials_path) if self.credentials_path else "",
+            asr_model=self.asr_model,
             segments=self.current_segments,
         )
 
@@ -451,6 +471,10 @@ class MainWindow(QMainWindow):
 
         self.audio_path.setText(project.audio_path)
         self.textgrid_path.setText(project.textgrid_path)
+        self.credentials_path = Path(project.credentials_path) if project.credentials_path else None
+        if self.credentials_path:
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(self.credentials_path)
+        self.set_asr_model(project.asr_model)
 
         self.save_project_action.setEnabled(True)
         self.batch_asr_button.setEnabled(True)
@@ -602,6 +626,110 @@ class MainWindow(QMainWindow):
             self.save_project_file(show_status=False)
             self.show_status("Verification saved.")
 
+    def ensure_credentials(self) -> bool:
+        if self.credentials_path and self.credentials_path.exists():
+            return True
+        env_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if env_path and Path(env_path).exists():
+            return True
+        self.show_status("Set Google credentials before running ASR.")
+        return False
+
+    def run_asr_for_selected(self):
+        if self.current_segment_row is None:
+            self.show_status("Select a segment before running ASR.")
+            return
+        if not self.ensure_credentials():
+            return
+
+        segment = self.segment_model.segment_at(self.current_segment_row)
+        items = [(self.current_segment_row, Path(segment.path))]
+        self.start_asr_worker(items, "ASR started for selected segment.")
+
+    def run_batch_asr(self):
+        if not self.ensure_credentials():
+            return
+        items = []
+        for row, segment in enumerate(self.current_segments):
+            if segment.verified:
+                continue
+            items.append((row, Path(segment.path)))
+        if not items:
+            self.show_status("No segments available for batch ASR.")
+            return
+        self.start_asr_worker(items, "Batch ASR started.")
+
+    def start_asr_worker(self, items, status_message):
+        if self.asr_thread is not None:
+            self.show_status("ASR already running.")
+            return
+        self.segment_asr_button.setEnabled(False)
+        self.batch_asr_button.setEnabled(False)
+        self.show_status(status_message)
+
+        self.asr_worker = ASRWorker(items, self.credentials_path, self.asr_model)
+        self.asr_thread = QThread(self)
+        self.asr_worker.moveToThread(self.asr_thread)
+
+        self.asr_worker.progress.connect(self.on_asr_progress)
+        self.asr_worker.segment_done.connect(self.on_asr_segment_done)
+        self.asr_worker.failed.connect(self.on_asr_failed)
+        self.asr_worker.finished.connect(self.on_asr_finished)
+        self.asr_thread.started.connect(self.asr_worker.run)
+
+        self.asr_worker.finished.connect(self.asr_thread.quit)
+        self.asr_worker.failed.connect(self.asr_thread.quit)
+        self.asr_thread.finished.connect(self.asr_worker.deleteLater)
+        self.asr_thread.finished.connect(self.asr_thread.deleteLater)
+
+        self.asr_thread.start()
+
+    @Slot(int, int, str)
+    def on_asr_progress(self, done, total, name):
+        self.show_status(f"ASR {done}/{total}: {name}")
+
+    @Slot(int, str)
+    def on_asr_segment_done(self, row, transcript):
+        segment = self.segment_model.segment_at(row)
+        segment.transcript = transcript
+        segment.asr_generated = True
+        segment.verified = False
+        self.segment_model.update_segment(row)
+        self.segment_proxy.invalidate()
+        self.segment_proxy.sort(0, Qt.AscendingOrder)
+        self.update_segments_header()
+
+        if self.current_segment_row == row:
+            self._updating_transcript = True
+            self.transcript_editor.setPlainText(segment.transcript)
+            self.segment_verified_checkbox.setChecked(False)
+            self._updating_transcript = False
+
+        if self.current_project_path is not None:
+            self.save_project_file(show_status=False)
+
+    @Slot(str)
+    def on_asr_failed(self, message):
+        self.show_status(f"ASR failed: {message}")
+        self.asr_thread = None
+        self.asr_worker = None
+        self.update_state()
+        if self.current_project_path is not None:
+            self.batch_asr_button.setEnabled(True)
+        if self.current_segment_row is not None:
+            self.segment_asr_button.setEnabled(True)
+
+    @Slot()
+    def on_asr_finished(self):
+        self.show_status("ASR complete.")
+        self.asr_thread = None
+        self.asr_worker = None
+        self.update_state()
+        if self.current_project_path is not None:
+            self.batch_asr_button.setEnabled(True)
+        if self.current_segment_row is not None:
+            self.segment_asr_button.setEnabled(True)
+
     def show_status(self, message: str, timeout: int | None = 3000):
         if timeout is None:
             self.statusBar().showMessage(message)
@@ -643,7 +771,14 @@ class MainWindow(QMainWindow):
             self.show_status("Credentials selection canceled.")
             return
         self.credentials_path = Path(file_path)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(self.credentials_path)
         self.show_status(f"Credentials set to {self.credentials_path}")
+        self.save_project_file(show_status=False)
+
+    def set_asr_model(self, model_name: str):
+        self.asr_model = model_name
+        self.show_status(f"ASR model set to {model_name}")
+        self.save_project_file(show_status=False)
 
 
 class SplitWorker(QObject):
@@ -676,6 +811,32 @@ class SplitWorker(QObject):
 
     def _on_progress(self, done, total, output_path):
         self.progress.emit(done, total, output_path.name)
+
+
+class ASRWorker(QObject):
+    progress = Signal(int, int, str)
+    segment_done = Signal(int, str)
+    finished = Signal()
+    failed = Signal(str)
+
+    def __init__(self, items: list[tuple[int, Path]], credentials_path: Path | None, model: str):
+        super().__init__()
+        self.items = items
+        self.credentials_path = credentials_path
+        self.model = model
+
+    @Slot()
+    def run(self):
+        total = len(self.items)
+        for index, (row, audio_path) in enumerate(self.items, start=1):
+            try:
+                transcript = transcribe_wav(audio_path, self.credentials_path, model=self.model)
+            except Exception as exc:
+                self.failed.emit(str(exc))
+                return
+            self.segment_done.emit(row, transcript)
+            self.progress.emit(index, total, audio_path.name)
+        self.finished.emit()
 
 
 def main():

@@ -29,6 +29,8 @@ class Project:
     output_dir: str
     batch_asr: bool
     segments: list[Segment]
+    credentials_path: str
+    asr_model: str
 
 
 def _rel_path(path: Path, base: Path) -> str:
@@ -53,6 +55,10 @@ def save_project(project_path: Path, project: Project) -> None:
         "textgrid_path": _rel_path(Path(project.textgrid_path), base),
         "output_dir": _rel_path(Path(project.output_dir), base),
         "batch_asr": project.batch_asr,
+        "credentials_path": _rel_path(Path(project.credentials_path), base)
+        if project.credentials_path
+        else "",
+        "asr_model": project.asr_model,
         "segments": [
             {
                 "tier": segment.tier,
@@ -96,5 +102,9 @@ def load_project(project_path: Path) -> Project:
         textgrid_path=str(_abs_path(data["textgrid_path"], base)),
         output_dir=str(_abs_path(data["output_dir"], base)),
         batch_asr=data.get("batch_asr", False),
+        credentials_path=str(_abs_path(data.get("credentials_path", ""), base))
+        if data.get("credentials_path")
+        else "",
+        asr_model=data.get("asr_model", "latest_long"),
         segments=segments,
     )
