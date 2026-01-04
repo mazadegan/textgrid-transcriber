@@ -229,7 +229,6 @@ class MainWindow(QMainWindow):
         segments_layout.addWidget(self.segments_header)
         segments_layout.addLayout(filters_row)
         segments_layout.addWidget(self.segments_table)
-        segments_layout.addWidget(self.segment_details_group)
         segments_group.setLayout(segments_layout)
 
         # --- Primary action
@@ -278,6 +277,8 @@ class MainWindow(QMainWindow):
         project_layout.addWidget(self.project_header_group)
         project_layout.addSpacing(6)
         project_layout.addWidget(segments_group)
+        project_layout.addSpacing(6)
+        project_layout.addWidget(self.segment_details_group)
         project_layout.addStretch(1)
         project_page = QWidget()
         project_page.setLayout(project_layout)
