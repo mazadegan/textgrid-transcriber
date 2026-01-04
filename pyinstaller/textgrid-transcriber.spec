@@ -29,6 +29,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="textgrid-transcriber",
+    icon="../assets/icons/app.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -49,5 +50,5 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="textgrid-transcriber.app",
-    icon=None,
+    icon="../assets/icons/app.icns",
 )

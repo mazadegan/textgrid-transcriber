@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=TextGrid Transcriber
+Exec=textgrid-transcriber
+Icon=textgrid-transcriber
+Terminal=false
+Categories=Audio;Utility;

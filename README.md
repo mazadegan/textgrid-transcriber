@@ -68,3 +68,11 @@ Windows (PowerShell):
 ```powershell
 scripts/build-windows.ps1
 ```
+
+## Linux desktop entry
+
+After building on Linux, you can install a desktop entry and icon:
+
+```bash
+linux/install-linux.sh
+```
