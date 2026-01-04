@@ -1,9 +1,10 @@
+import json
 import logging
 import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot, QUrl
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot, QUrl, QStandardPaths
 from PySide6.QtGui import QAction, QActionGroup, QFont
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
@@ -59,6 +60,7 @@ class MainWindow(QMainWindow):
         self.current_segments: list[Segment] = []
         self.credentials_path: Path | None = None
         self.asr_model = "latest_long"
+        self.recent_projects: list[Path] = []
 
         # --- Headers
         setup_title = QLabel("New Project")
@@ -254,7 +256,7 @@ class MainWindow(QMainWindow):
 
         setup_layout = QVBoxLayout()
         setup_layout.setContentsMargins(20, 18, 20, 18)
-        setup_layout.setSpacing(14)
+        setup_layout.setSpacing(8)
         setup_layout.addWidget(setup_title)
         setup_layout.addWidget(setup_subtitle)
         setup_layout.addSpacing(6)
@@ -300,6 +302,7 @@ class MainWindow(QMainWindow):
         self.save_project_action = file_menu.addAction("Save Project")
         self.save_project_as_action = file_menu.addAction("Save Project As…")
         self.save_project_action.setEnabled(False)
+        self.recent_menu = file_menu.addMenu("Recent Projects")
         log_menu = self.menuBar().addMenu("Logs")
         self.view_log_action = log_menu.addAction("View Logs…")
         self.credentials_action = edit_menu.addAction("Set Google Credentials…")
@@ -355,6 +358,7 @@ class MainWindow(QMainWindow):
         self.asr_worker = None
         self.asr_thread = None
         self.show_welcome()
+        self.load_recent_projects()
 
     def check_ffmpeg(self):
         self.ffmpeg_ok = False
@@ -413,6 +417,52 @@ class MainWindow(QMainWindow):
         self.project_audio_value.setText(audio_name)
         self.project_textgrid_value.setText(textgrid_name)
         self.project_status_value.setText(status)
+
+    def recent_projects_path(self) -> Path:
+        base = Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+        base.mkdir(parents=True, exist_ok=True)
+        return base / "recent_projects.json"
+
+    def load_recent_projects(self):
+        path = self.recent_projects_path()
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                self.recent_projects = [Path(p) for p in data if p]
+            except Exception:
+                self.recent_projects = []
+        else:
+            self.recent_projects = []
+        self.refresh_recent_menu()
+
+    def save_recent_projects(self):
+        path = self.recent_projects_path()
+        payload = [str(p) for p in self.recent_projects[:5]]
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def refresh_recent_menu(self):
+        self.recent_menu.clear()
+        if not self.recent_projects:
+            empty_action = self.recent_menu.addAction("No recent projects")
+            empty_action.setEnabled(False)
+            return
+        for proj in self.recent_projects[:5]:
+            action = self.recent_menu.addAction(proj.name)
+            action.setToolTip(str(proj))
+            action.triggered.connect(lambda checked=False, path=proj: self.open_recent_project(path))
+
+    def remember_project(self, project_path: Path):
+        self.recent_projects = [p for p in self.recent_projects if p != project_path]
+        self.recent_projects.insert(0, project_path)
+        self.recent_projects = self.recent_projects[:5]
+        self.save_recent_projects()
+        self.refresh_recent_menu()
+
+    def open_recent_project(self, path: Path):
+        if not path.exists():
+            self.show_status(f"Recent project not found: {path}")
+            return
+        self.open_project_path(path)
 
     def start_new_project(self):
         self.current_project_path = None
@@ -566,12 +616,16 @@ class MainWindow(QMainWindow):
 
         project = self._build_project()
         save_project(self.current_project_path, project)
+        self.remember_project(self.current_project_path)
         self.save_project_action.setEnabled(True)
         if show_status:
             self.show_status(f"Project saved to {self.current_project_path}", 3000)
 
     def save_project_as(self):
         self.save_project_file(force_dialog=True)
+
+    def open_project_path(self, project_path: Path) -> bool:
+        return self._load_project_from_path(project_path)
 
     def open_project(self) -> bool:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -583,14 +637,16 @@ class MainWindow(QMainWindow):
         if not file_path:
             self.show_status("Open project canceled.")
             return False
+        return self._load_project_from_path(Path(file_path))
 
+    def _load_project_from_path(self, path: Path) -> bool:
         try:
-            project = load_project(Path(file_path))
+            project = load_project(path)
         except Exception as exc:
             self.show_status(f"Failed to load project: {exc}")
             return False
 
-        self.current_project_path = Path(file_path)
+        self.current_project_path = path
         self.current_output_dir = Path(project.output_dir)
         self.current_segments = project.segments
 
@@ -607,6 +663,7 @@ class MainWindow(QMainWindow):
         self.populate_segments()
         self.update_state()
         self.update_project_info()
+        self.remember_project(self.current_project_path)
         self.show_project()
         return True
 
