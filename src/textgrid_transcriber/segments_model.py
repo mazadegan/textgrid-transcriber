@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-from PySide6.QtCore import QAbstractTableModel, QSortFilterProxyModel, Qt
+from PySide6.QtCore import QAbstractListModel, QSortFilterProxyModel, Qt
 
 from textgrid_transcriber.project import Segment
 
@@ -28,28 +28,13 @@ def status_rank(status: str) -> int:
     return 2
 
 
-class SegmentTableModel(QAbstractTableModel):
-    COLUMN_FILE = 0
-    COLUMN_STATUS = 1
-
+class SegmentListModel(QAbstractListModel):
     def __init__(self, segments: Iterable[Segment] | None = None):
         super().__init__()
         self._segments = list(segments or [])
 
     def rowCount(self, parent=None):
         return len(self._segments)
-
-    def columnCount(self, parent=None):
-        return 2
-
-    def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if role != Qt.DisplayRole or orientation != Qt.Horizontal:
-            return None
-        if section == self.COLUMN_FILE:
-            return "File"
-        if section == self.COLUMN_STATUS:
-            return "Status"
-        return None
 
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
@@ -59,19 +44,18 @@ class SegmentTableModel(QAbstractTableModel):
         name = Path(segment.path).name
 
         if role == Qt.DisplayRole:
-            if index.column() == self.COLUMN_FILE:
-                return name
-            if index.column() == self.COLUMN_STATUS:
-                return status
+            return name
         if role == Qt.UserRole:
             return segment
         if role == Qt.UserRole + 1:
-            return status_rank(status)
+            return status
         if role == Qt.UserRole + 2:
-            return segment.end_ms - segment.start_ms
+            return status_rank(status)
         if role == Qt.UserRole + 3:
-            return segment.tier
+            return segment.end_ms - segment.start_ms
         if role == Qt.UserRole + 4:
+            return segment.tier
+        if role == Qt.UserRole + 5:
             return segment.transcript
         return None
 
@@ -85,9 +69,8 @@ class SegmentTableModel(QAbstractTableModel):
 
     def update_segment(self, row: int) -> None:
         if 0 <= row < len(self._segments):
-            left = self.index(row, 0)
-            right = self.index(row, self.columnCount() - 1)
-            self.dataChanged.emit(left, right, [Qt.DisplayRole, Qt.UserRole])
+            index = self.index(row, 0)
+            self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.UserRole])
 
 
 class SegmentFilterProxy(QSortFilterProxyModel):

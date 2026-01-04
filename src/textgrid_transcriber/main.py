@@ -18,11 +18,10 @@ from PySide6.QtWidgets import (
     QPushButton,
     QComboBox,
     QGroupBox,
-    QHeaderView,
+    QListView,
     QPlainTextEdit,
     QSlider,
     QStackedWidget,
-    QTableView,
     QMessageBox,
     QDialog,
     QGridLayout,
@@ -34,12 +33,13 @@ from PySide6.QtWidgets import (
 
 from textgrid_transcriber.asr import transcribe_wav
 from textgrid_transcriber.ffmpeg import get_ffmpeg_path
+from textgrid_transcriber.segments_delegate import SegmentListDelegate
 from textgrid_transcriber.segments_model import (
     STATUS_EMPTY,
     STATUS_UNVERIFIED,
     STATUS_VERIFIED,
     SegmentFilterProxy,
-    SegmentTableModel,
+    SegmentListModel,
     segment_status,
 )
 from textgrid_transcriber.project import PROJECT_FILENAME, PROJECT_VERSION, Project, Segment, load_project, save_project
@@ -110,7 +110,7 @@ class MainWindow(QMainWindow):
         self.batch_asr_button.setEnabled(False)
 
         self.segments_header = QLabel("Segments (0 total, 0 verified)")
-        self.segment_model = SegmentTableModel()
+        self.segment_model = SegmentListModel()
         self.segment_proxy = SegmentFilterProxy()
         self.segment_proxy.setSourceModel(self.segment_model)
         self.segment_proxy.setSortCaseSensitivity(Qt.CaseInsensitive)
@@ -132,22 +132,15 @@ class MainWindow(QMainWindow):
         filters_row.addStretch(1)
         filters_row.addWidget(self.batch_asr_button)
 
-        self.segments_table = QTableView()
-        self.segments_table.setModel(self.segment_proxy)
-        self.segments_table.setSelectionBehavior(QTableView.SelectRows)
-        self.segments_table.setSelectionMode(QTableView.SingleSelection)
-        self.segments_table.setSortingEnabled(True)
-        self.segments_table.horizontalHeader().setStretchLastSection(True)
-        self.segments_table.horizontalHeader().setSectionResizeMode(
-            SegmentTableModel.COLUMN_FILE, QHeaderView.Stretch
-        )
-        self.segments_table.horizontalHeader().setSectionResizeMode(
-            SegmentTableModel.COLUMN_STATUS, QHeaderView.ResizeToContents
-        )
-        row_height = self.segments_table.verticalHeader().defaultSectionSize()
-        header_height = self.segments_table.horizontalHeader().height()
-        table_frame = self.segments_table.frameWidth() * 2
-        self.segments_table.setMinimumHeight(header_height + (row_height * 3) + table_frame)
+        self.segments_list = QListView()
+        self.segments_list.setModel(self.segment_proxy)
+        self.segments_list.setSelectionMode(QListView.SingleSelection)
+        self.segments_list.setItemDelegate(SegmentListDelegate(self.segments_list))
+        self.segments_list.setUniformItemSizes(True)
+        self.segments_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        row_height = self.segments_list.sizeHintForRow(0) or 28
+        list_frame = self.segments_list.frameWidth() * 2
+        self.segments_list.setMinimumHeight((row_height * 3) + list_frame + 6)
 
         self.segment_details_group = QGroupBox("Selected segment")
         self.segment_details_group.setVisible(False)
@@ -228,7 +221,7 @@ class MainWindow(QMainWindow):
         segments_layout = QVBoxLayout()
         segments_layout.addWidget(self.segments_header)
         segments_layout.addLayout(filters_row)
-        segments_layout.addWidget(self.segments_table)
+        segments_layout.addWidget(self.segments_list)
         segments_group.setLayout(segments_layout)
 
         # --- Primary action
@@ -339,7 +332,7 @@ class MainWindow(QMainWindow):
         self.filter_tier.currentTextChanged.connect(self.on_filter_tier_changed)
         self.filter_status.currentTextChanged.connect(self.on_filter_status_changed)
         self.filter_sort.currentTextChanged.connect(self.on_sort_changed)
-        self.segments_table.selectionModel().selectionChanged.connect(self.on_segment_selection_changed)
+        self.segments_list.selectionModel().selectionChanged.connect(self.on_segment_selection_changed)
         self.segment_play_button.clicked.connect(self.play_selected_segment)
         self.segment_stop_button.clicked.connect(self.stop_selected_segment)
         self.segment_seek_slider.sliderMoved.connect(self.seek_selected_segment)
@@ -392,7 +385,7 @@ class MainWindow(QMainWindow):
     def show_project(self):
         self.pages.setCurrentIndex(self.page_project)
         self._set_pages_resizable()
-        self.adjustSize()
+        self.resize(720, 640)
 
     def _set_pages_fixed_to_current(self):
         size = self.pages.currentWidget().sizeHint()
@@ -681,7 +674,7 @@ class MainWindow(QMainWindow):
         self._updating_transcript = False
 
     def on_segment_selection_changed(self, *_):
-        selection = self.segments_table.selectionModel().selectedRows()
+        selection = self.segments_list.selectionModel().selectedIndexes()
         if not selection:
             self.clear_segment_details()
             self.show_status("Segment selection cleared.")
