@@ -262,7 +262,7 @@ class MainWindow(QMainWindow):
         setup_layout.addSpacing(6)
         setup_layout.addLayout(form)
         setup_layout.addLayout(actions)
-        setup_layout.addStretch(1)
+        # setup_layout.addStretch(1)
         setup_page = QWidget()
         setup_page.setLayout(setup_layout)
 
@@ -383,7 +383,7 @@ class MainWindow(QMainWindow):
 
     def show_setup(self):
         self.pages.setCurrentIndex(self.page_setup)
-        self._set_pages_resizable()
+        self._set_pages_fixed_to_current()
         self.adjustSize()
 
     def show_project(self):
