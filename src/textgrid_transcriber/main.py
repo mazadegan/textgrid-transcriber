@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QTableView,
     QMessageBox,
     QDialog,
+    QGridLayout,
     QSizePolicy,
     QStatusBar,
     QVBoxLayout,
@@ -188,13 +189,28 @@ class MainWindow(QMainWindow):
         details_layout.addLayout(controls_row)
         self.segment_details_group.setLayout(details_layout)
 
-        self.project_title = QLabel("Project")
-        project_title_font = QFont()
-        project_title_font.setPointSize(16)
-        project_title_font.setBold(True)
-        self.project_title.setFont(project_title_font)
-        self.project_info = QLabel("No project loaded.")
-        self.project_info.setWordWrap(True)
+        self.project_header_group = QGroupBox("Project")
+        self.project_name_label = QLabel("Name:")
+        self.project_name_value = QLabel("Untitled")
+        self.project_audio_label = QLabel("Audio:")
+        self.project_audio_value = QLabel("—")
+        self.project_textgrid_label = QLabel("TextGrid:")
+        self.project_textgrid_value = QLabel("—")
+        self.project_status_label = QLabel("Status:")
+        self.project_status_value = QLabel("Not started")
+
+        project_header_layout = QGridLayout()
+        project_header_layout.setColumnStretch(1, 1)
+        project_header_layout.setColumnStretch(3, 1)
+        project_header_layout.addWidget(self.project_name_label, 0, 0)
+        project_header_layout.addWidget(self.project_name_value, 0, 1)
+        project_header_layout.addWidget(self.project_status_label, 0, 2)
+        project_header_layout.addWidget(self.project_status_value, 0, 3)
+        project_header_layout.addWidget(self.project_audio_label, 1, 0)
+        project_header_layout.addWidget(self.project_audio_value, 1, 1)
+        project_header_layout.addWidget(self.project_textgrid_label, 1, 2)
+        project_header_layout.addWidget(self.project_textgrid_value, 1, 3)
+        self.project_header_group.setLayout(project_header_layout)
 
         self.welcome_title = QLabel("TextGrid Transcriber")
         welcome_title_font = QFont()
@@ -259,8 +275,7 @@ class MainWindow(QMainWindow):
         project_layout = QVBoxLayout()
         project_layout.setContentsMargins(20, 18, 20, 18)
         project_layout.setSpacing(14)
-        project_layout.addWidget(self.project_title)
-        project_layout.addWidget(self.project_info)
+        project_layout.addWidget(self.project_header_group)
         project_layout.addSpacing(6)
         project_layout.addWidget(segments_group)
         project_layout.addStretch(1)
@@ -390,14 +405,20 @@ class MainWindow(QMainWindow):
         self.pages.setMaximumSize(16777215, 16777215)
 
     def update_project_info(self):
-        audio_name = Path(self.audio_path.text().strip()).name if self.audio_path.text().strip() else ""
-        textgrid_name = Path(self.textgrid_path.text().strip()).name if self.textgrid_path.text().strip() else ""
-        if audio_name and textgrid_name:
-            self.project_info.setText(f"Audio: {audio_name}\nTextGrid: {textgrid_name}")
-        elif audio_name:
-            self.project_info.setText(f"Audio: {audio_name}")
+        project_name = self.current_project_path.stem if self.current_project_path else "Untitled"
+        audio_name = Path(self.audio_path.text().strip()).name if self.audio_path.text().strip() else "—"
+        textgrid_name = Path(self.textgrid_path.text().strip()).name if self.textgrid_path.text().strip() else "—"
+        total = len(self.current_segments)
+        verified = sum(1 for segment in self.current_segments if segment_status(segment) == STATUS_VERIFIED)
+        if total:
+            status = f"{verified}/{total} verified"
         else:
-            self.project_info.setText("No project loaded.")
+            status = "Not started"
+
+        self.project_name_value.setText(project_name)
+        self.project_audio_value.setText(audio_name)
+        self.project_textgrid_value.setText(textgrid_name)
+        self.project_status_value.setText(status)
 
     def start_new_project(self):
         self.current_project_path = None
