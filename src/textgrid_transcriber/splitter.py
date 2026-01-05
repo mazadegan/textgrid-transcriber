@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from math import ceil, floor
@@ -16,7 +17,10 @@ def _sanitize_label(label: str) -> str:
 
 
 def _run_ffmpeg(args: list[str]) -> None:
-    subprocess.run(args, check=True)
+    kwargs = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    subprocess.run(args, check=True, **kwargs)
 
 
 def split_audio_with_ffmpeg(
