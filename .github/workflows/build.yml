@@ -9,7 +9,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [macos-15-intel, macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -27,7 +27,7 @@ jobs:
           pip install pyinstaller
 
       - name: Build (macOS)
-        if: matrix.os == 'macos-latest'
+        if: startsWith(matrix.os, 'macos')
         run: bash scripts/build-macos.sh
 
       - name: Build (Linux)
@@ -39,8 +39,28 @@ jobs:
         shell: pwsh
         run: scripts/build-windows.ps1
 
+      - name: Package artifact (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          cd dist
+          zip -r textgrid-transcriber-${{ matrix.os }}.zip textgrid-transcriber.app
+
+      - name: Package artifact (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cd dist
+          tar -czf textgrid-transcriber-${{ matrix.os }}.tar.gz textgrid-transcriber
+
+      - name: Package artifact (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist\textgrid-transcriber\* -DestinationPath dist\textgrid-transcriber-${{ matrix.os }}.zip
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: textgrid-transcriber-${{ matrix.os }}
-          path: dist/*
+          path: |
+            dist/*.zip
+            dist/*.tar.gz

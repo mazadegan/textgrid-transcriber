@@ -8,4 +8,6 @@ Set-Location $RootDir
 & $PyInstaller `
     --clean `
     --noconfirm `
+    --distpath dist `
+    --workpath build `
     pyinstaller\textgrid-transcriber.spec

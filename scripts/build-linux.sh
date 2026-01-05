@@ -9,4 +9,6 @@ cd "$ROOT_DIR"
 $PYINSTALLER \
   --clean \
   --noconfirm \
+  --distpath dist \
+  --workpath build \
   pyinstaller/textgrid-transcriber.spec
