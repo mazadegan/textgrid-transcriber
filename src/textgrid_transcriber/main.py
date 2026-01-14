@@ -808,6 +808,7 @@ class MainWindow(QMainWindow):
         self.segment_proxy.invalidate()
         self.segment_proxy.sort(0, Qt.AscendingOrder)
         self.update_segments_header()
+        self.update_project_info()
         self.show_status(f"Verified set to {checked}.")
         if self.current_project_path is not None:
             self.save_project_file(show_status=False)
@@ -885,6 +886,7 @@ class MainWindow(QMainWindow):
         self.segment_proxy.invalidate()
         self.segment_proxy.sort(0, Qt.AscendingOrder)
         self.update_segments_header()
+        self.update_project_info()
 
         if self.current_segment_row == row:
             self._updating_transcript = True

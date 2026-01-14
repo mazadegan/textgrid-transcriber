@@ -1,9 +1,7 @@
 # TextGrid Transcriber
 
-A small (eventually cross-platform) desktop app for splitting audio based on a Praat TextGrid and transcribing
+A small, cross-platform desktop app for splitting audio based on a Praat TextGrid and transcribing
 the split segments manually or in conjunction with Google Cloud Speech-to-Text.
-
-Note: Google Cloud ASR integration is a work in progress.
 
 ## Requirements
 

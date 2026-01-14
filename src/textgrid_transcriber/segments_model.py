@@ -70,7 +70,17 @@ class SegmentListModel(QAbstractListModel):
     def update_segment(self, row: int) -> None:
         if 0 <= row < len(self._segments):
             index = self.index(row, 0)
-            self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.UserRole])
+            self.dataChanged.emit(
+                index,
+                index,
+                [
+                    Qt.DisplayRole,
+                    Qt.UserRole,
+                    Qt.UserRole + 1,  # status
+                    Qt.UserRole + 2,  # status rank
+                    Qt.UserRole + 5,  # transcript
+                ],
+            )
 
 
 class SegmentFilterProxy(QSortFilterProxyModel):
