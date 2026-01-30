@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot, QUrl, QStandardPaths
-from PySide6.QtGui import QAction, QActionGroup, QFont
+from PySide6.QtGui import QAction, QFont
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from textgrid_transcriber.asr import transcribe_wav
+from textgrid_transcriber.asr import DEFAULT_ASR_MODEL, transcribe_wav
 from textgrid_transcriber.ffmpeg import get_ffmpeg_path
 from textgrid_transcriber.segments_delegate import SegmentListDelegate
 from textgrid_transcriber.segments_model import (
@@ -59,7 +59,7 @@ class MainWindow(QMainWindow):
         self.current_output_dir: Path | None = None
         self.current_segments: list[Segment] = []
         self.credentials_path: Path | None = None
-        self.asr_model = "latest_long"
+        self.asr_model = DEFAULT_ASR_MODEL
         self.recent_projects: list[Path] = []
 
         # --- Headers
@@ -308,17 +308,6 @@ class MainWindow(QMainWindow):
         log_menu = self.menuBar().addMenu("Logs")
         self.view_log_action = log_menu.addAction("View Logs…")
         self.credentials_action = edit_menu.addAction("Set Google Credentials…")
-        model_menu = edit_menu.addMenu("ASR Model")
-        model_group = QActionGroup(self)
-        model_group.setExclusive(True)
-        for model_name in ["latest_long", "latest_short", "command_and_search", "phone_call"]:
-            action = QAction(model_name, self, checkable=True)
-            if model_name == self.asr_model:
-                action.setChecked(True)
-            action.triggered.connect(lambda checked, name=model_name: self.set_asr_model(name))
-            model_group.addAction(action)
-            model_menu.addAction(action)
-
         self.check_ffmpeg()
 
         # --- Connections
@@ -657,7 +646,7 @@ class MainWindow(QMainWindow):
         self.credentials_path = Path(project.credentials_path) if project.credentials_path else None
         if self.credentials_path:
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(self.credentials_path)
-        self.set_asr_model(project.asr_model)
+        self.set_asr_model(DEFAULT_ASR_MODEL)
 
         self.save_project_action.setEnabled(True)
         self.batch_asr_button.setEnabled(True)
@@ -965,8 +954,9 @@ class MainWindow(QMainWindow):
         self.save_project_file(show_status=False)
 
     def set_asr_model(self, model_name: str):
-        self.asr_model = model_name
-        self.show_status(f"ASR model set to {model_name}")
+        if model_name != DEFAULT_ASR_MODEL:
+            self.show_status(f"ASR model is fixed to {DEFAULT_ASR_MODEL}.")
+        self.asr_model = DEFAULT_ASR_MODEL
         self.save_project_file(show_status=False)
 
 

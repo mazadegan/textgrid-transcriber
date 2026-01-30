@@ -105,6 +105,6 @@ def load_project(project_path: Path) -> Project:
         credentials_path=str(_abs_path(data.get("credentials_path", ""), base))
         if data.get("credentials_path")
         else "",
-        asr_model=data.get("asr_model", "latest_long"),
+        asr_model=data.get("asr_model", "chirp_3"),
         segments=segments,
     )

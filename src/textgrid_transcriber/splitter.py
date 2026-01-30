@@ -41,8 +41,10 @@ def split_audio_with_ffmpeg(
             str(audio_path),
             "-acodec",
             "pcm_s16le",
+            "-ac",
+            "1",
             "-ar",
-            "44100",
+            "16000",
             str(wav_path),
         ]
     )
@@ -87,8 +89,10 @@ def split_audio_with_ffmpeg(
                     str(wav_path),
                     "-acodec",
                     "pcm_s16le",
+                    "-ac",
+                    "1",
                     "-ar",
-                    "44100",
+                    "16000",
                     str(output_path),
                 ]
             )
